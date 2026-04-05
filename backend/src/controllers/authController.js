@@ -36,10 +36,12 @@ const attachCookies = async (res, user, req) => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
   });
 
+  // 🚨 THE FIX: CROSS-DOMAIN COOKIE STAMP
+  const isProduction = process.env.NODE_ENV === 'production';
   const cookieOptions = { 
     httpOnly: true, 
-    secure: process.env.NODE_ENV === 'production', 
-    sameSite: 'strict' 
+    secure: isProduction, // True on Render, False on Localhost
+    sameSite: isProduction ? 'none' : 'lax' // 'none' allows Vercel to talk to Render
   };
   
   res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
@@ -227,8 +229,17 @@ const refresh = async (req, res) => {
 // ==========================================
 const logout = async (req, res) => {
   const token = req.cookies.refreshToken;
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken');
+  
+  // 🚨 THE FIX: Clear cookies securely across domains
+  const isProduction = process.env.NODE_ENV === 'production';
+  const clearCookieOptions = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax'
+  };
+
+  res.clearCookie('accessToken', clearCookieOptions);
+  res.clearCookie('refreshToken', clearCookieOptions);
   
   if (token) {
     try {
@@ -247,8 +258,17 @@ const logout = async (req, res) => {
 const logoutAllDevices = async (req, res) => {
   try {
     await Session.destroy({ where: { userId: req.user.id } });
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+    
+    // 🚨 THE FIX: Clear cookies securely across domains
+    const isProduction = process.env.NODE_ENV === 'production';
+    const clearCookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax'
+    };
+
+    res.clearCookie('accessToken', clearCookieOptions);
+    res.clearCookie('refreshToken', clearCookieOptions);
     res.status(200).json({ success: true, message: 'Logged out of all devices successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to logout from all devices.' });

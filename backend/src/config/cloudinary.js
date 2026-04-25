@@ -10,24 +10,22 @@ cloudinary.config({
 });
 
 const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
+  cloudinary,
   params: {
-    folder: 'lakshmi_stores_products', 
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'], 
+    folder: 'lakshmi_stores_products',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
     transformation: [{ width: 800, height: 800, crop: 'limit' }]
-  },
+  }
 });
 
-// 🚨 AUDIT FIX: Strict File Validations
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB Max size
+const upload = multer({
+  storage,
+  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB max
   fileFilter: (req, file, cb) => {
-    // Strictly allow ONLY images
-    if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/png' || file.mimetype === 'image/webp') {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      // Reject any other extension (e.g. .php, .sh, .exe)
       cb(new Error('LIMIT_FILE_TYPES'), false);
     }
   }

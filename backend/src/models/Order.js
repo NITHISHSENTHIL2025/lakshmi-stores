@@ -1,63 +1,79 @@
 const { DataTypes } = require('sequelize');
-const dbExport = require('../config/db'); 
+const dbExport = require('../config/db');
 const sequelize = dbExport.sequelize || dbExport;
 
 const Order = sequelize.define('Order', {
-  id: { 
-    type: DataTypes.UUID, 
-    defaultValue: DataTypes.UUIDV4, 
-    primaryKey: true 
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
   },
-  userId: { 
-    type: DataTypes.STRING, 
-    allowNull: false 
+  userId: {
+    type: DataTypes.STRING,
+    allowNull: false
   },
-  totalAmount: { 
-    type: DataTypes.FLOAT, 
-    allowNull: false 
+  
+  // 🚨 PRODUCTION FIX: DECIMAL(10,2) prevents Cashfree signature errors
+  totalAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false
   },
-  orderAmount: { 
-    type: DataTypes.FLOAT, 
-    allowNull: false 
+  orderAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false
   },
-  orderStatus: { 
-    type: DataTypes.STRING, 
-    defaultValue: 'pending' 
+  orderStatus: {
+    type: DataTypes.STRING,
+    defaultValue: 'pending'
   },
-  paymentType: { 
-    type: DataTypes.STRING, 
-    defaultValue: 'ONLINE' 
+  paymentType: {
+    type: DataTypes.STRING,
+    defaultValue: 'ONLINE'
   },
-  cashfreeOrderId: { 
-    type: DataTypes.STRING 
+
+  // 🚨 PRODUCTION FIX: Idempotency Key & Session Tracking
+  idempotencyKey: {
+    type: DataTypes.STRING,
+    unique: true,
+    allowNull: true
   },
-  orderToken: { 
-    type: DataTypes.STRING 
+  paymentSessionId: {
+    type: DataTypes.STRING,
+    allowNull: true
   },
-  // 🚨 AUDIT FIX: The real, randomized secret PIN
+
+  cashfreeOrderId: {
+    type: DataTypes.STRING
+  },
+  orderToken: {
+    type: DataTypes.STRING
+  },
   pickupPin: {
     type: DataTypes.STRING,
-    allowNull: true,
+    allowNull: true
   },
-  pickupTime: { 
-    type: DataTypes.STRING, 
-    defaultValue: 'ASAP' 
+  pickupTime: {
+    type: DataTypes.STRING,
+    defaultValue: 'ASAP'
   },
-  customerNote: { 
-    type: DataTypes.TEXT 
+  customerNote: {
+    type: DataTypes.STRING(500),
+    allowNull: true
   },
-  customerEmail: { 
-    type: DataTypes.STRING 
+  customerEmail: {
+    type: DataTypes.STRING
   },
-  customerPhone: { 
-    type: DataTypes.STRING 
+  customerPhone: {
+    type: DataTypes.STRING
   }
 }, {
+  timestamps: true,
   indexes: [
     { fields: ['userId'] },
     { fields: ['cashfreeOrderId'] },
     { fields: ['createdAt'] },
-    { fields: ['orderStatus'] }
+    { fields: ['orderStatus'] },
+    { fields: ['idempotencyKey'] } // Fast lookups for double-clicks
   ]
 });
 

@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCart } from '../context/CartContext';
+import { useStore } from '../context/StoreContext';
 import api from '../api/axios';
-import useFetch from '../hooks/useFetch'; // 🚨 SPRINT 2 FIX: Imported our custom hook!
 
 const ProductGrid = () => {
-  // 🚨 SPRINT 2 FIX: 1 Line of code replaces 15 lines of manual fetching/loading/errors!
-  const { data: fetchedProducts, loading } = useFetch('/products');
-  const products = fetchedProducts || []; // Fallback to empty array while loading
+  const { storeStatus, socket } = useStore();
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // 🚨 PRODUCTION FIX: Swiggy-Level Pagination State
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   
-  const [isShopOpen, setIsShopOpen] = useState(true);
   const [requestedItems, setRequestedItems] = useState([]);
   const [notifiedItems, setNotifiedItems] = useState([]);
 
@@ -19,23 +22,38 @@ const ProductGrid = () => {
   const [customWeight, setCustomWeight] = useState('');
 
   const { addToCart, cartItems, updateQuantity, removeFromCart, cartTotal, setIsCartOpen } = useCart();
-  const token = localStorage.getItem('token');
 
-  useEffect(() => {
-    // We keep the manual fetch for store status since it runs on a 15-second polling interval
-    fetchStoreStatus();
-    const interval = setInterval(() => { fetchStoreStatus(); }, 15000);
-    return () => clearInterval(interval);
+  // 🚨 PRODUCTION FIX: Fetching with Page and Limit
+  const fetchCatalog = useCallback(async (pageNum = 1, shouldAppend = false) => {
+    try {
+      if (pageNum === 1 && !shouldAppend) setLoading(true);
+      const res = await api.get(`/products?page=${pageNum}&limit=20`); 
+      
+      const newProducts = res.data.data;
+      setProducts(prev => shouldAppend ? [...prev, ...newProducts] : newProducts);
+      setHasMore(res.data.pagination.page < res.data.pagination.pages);
+      setPage(pageNum);
+    } catch (e) {
+      console.error('Failed to load catalog', e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!isShopOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = 'unset';
-  }, [isShopOpen]);
+    fetchCatalog(1, false);
 
-  const fetchStoreStatus = async () => {
-    try { const res = await api.get('/store/status'); setIsShopOpen(res.data.isOpen); } 
-    catch (e) { }
+    // If socket exists, listen for store updates
+    if (socket) {
+      socket.on('storeUpdated', () => fetchCatalog(1, false));
+    }
+    return () => {
+      if (socket) socket.off('storeUpdated');
+    };
+  }, [socket, fetchCatalog]);
+
+  const loadMore = () => {
+    if (hasMore) fetchCatalog(page + 1, true);
   };
 
   const getAppStock = (product) => {
@@ -45,8 +63,8 @@ const ProductGrid = () => {
   };
 
   const handleAddClick = (product, appStock) => {
-    const isLoose = product.category?.toLowerCase().includes('loose');
-    if (isLoose) setWeightModalProduct({ ...product, appStock });
+    // 🚨 PRODUCTION FIX: Use Boolean Flag
+    if (product.isSoldByWeight) setWeightModalProduct({ ...product, appStock });
     else addToCart(product, 1, appStock); 
   };
 
@@ -74,7 +92,6 @@ const ProductGrid = () => {
 
   const handleNotifyMe = (productId) => {
     setNotifiedItems([...notifiedItems, productId]);
-    // Note: The global toast from axios interceptor is better, but keeping this simple alert for now
     alert("You will be notified the moment this item arrives!");
   };
 
@@ -95,19 +112,11 @@ const ProductGrid = () => {
 
   const getCartItem = (productId) => cartItems.find(item => item.id === productId);
 
-  if (loading) return <div className="flex justify-center items-center h-[50vh]"><div className="animate-spin text-5xl">🛒</div></div>;
+  if (loading && products.length === 0) return <div className="flex justify-center items-center h-[50vh]"><div className="animate-spin text-5xl">🛒</div></div>;
 
   return (
     <div className="space-y-6 pb-24 animate-fadeIn relative">
       
-      {!isShopOpen && (
-        <div className="fixed inset-0 z-[9999] bg-gray-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center w-full h-full overscroll-none animate-fadeIn">
-          <div className="text-8xl mb-8 animate-bounce">🏪</div>
-          <h2 className="text-5xl font-black text-white mb-4 tracking-tighter">Shop is Closed</h2>
-          <p className="text-gray-400 font-bold mb-8 max-w-sm text-lg">We are currently taking a break or closed for the day. Please come back later!</p>
-        </div>
-      )}
-
       <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mx-2 md:mx-0 animate-slideUp">
          <div>
            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Lakshmi<span className="text-orange-500">Stores</span></h1>
@@ -180,8 +189,9 @@ const ProductGrid = () => {
             const cartItem = getCartItem(product.id);
             const appStock = getAppStock(product); 
             const isOutOfStock = appStock === 0;
-            const isLoose = product.category?.toLowerCase().includes('loose'); 
-            const stepAmount = isLoose ? 0.25 : 1;
+            
+            // 🚨 PRODUCTION FIX: Use Boolean Flag
+            const stepAmount = product.isSoldByWeight ? 0.25 : 1;
 
             return (
               <div key={product.id} style={{ animationDelay: `${index * 0.05}s` }} className={`bg-white rounded-3xl p-4 shadow-sm border transition-all duration-300 flex flex-col group relative overflow-hidden animate-slideUp ${isOutOfStock ? 'opacity-80 border-gray-50' : 'border-gray-100 hover:shadow-xl hover:-translate-y-1'}`}>
@@ -195,7 +205,7 @@ const ProductGrid = () => {
                   <h3 className="font-bold text-gray-900 leading-tight mb-1 line-clamp-2 min-h-[40px] text-sm md:text-base">{product.name}</h3>
                   <div className="mt-auto pt-3 flex items-end justify-between">
                     <div>
-                      {isLoose && <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-0.5">Price per KG</p>}
+                      {product.isSoldByWeight && <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-0.5">Price per KG</p>}
                       <p className="text-xl md:text-2xl font-black text-gray-900 tracking-tighter">₹{product.price}</p>
                     </div>
 
@@ -208,7 +218,7 @@ const ProductGrid = () => {
                     ) : (
                       <div className="flex items-center bg-green-600 text-white rounded-xl shadow-md h-10 w-24 md:w-28 overflow-hidden transition-all transform hover:scale-105">
                         <button onClick={() => cartItem.quantity <= stepAmount ? removeFromCart(product.id) : updateQuantity(product.id, cartItem.quantity - stepAmount)} className="flex-1 h-full flex items-center justify-center font-black hover:bg-green-700 cursor-pointer transition-colors">−</button>
-                        <span className="flex-1 h-full flex items-center justify-center font-black text-sm bg-green-700/20">{cartItem.quantity}{isLoose && 'kg'}</span>
+                        <span className="flex-1 h-full flex items-center justify-center font-black text-sm bg-green-700/20">{cartItem.quantity}{product.isSoldByWeight && 'kg'}</span>
                         <button onClick={() => updateQuantity(product.id, cartItem.quantity + stepAmount)} disabled={cartItem.quantity >= appStock} className="flex-1 h-full flex items-center justify-center font-black hover:bg-green-700 disabled:opacity-50 cursor-pointer transition-colors">+</button>
                       </div>
                     )}
@@ -220,7 +230,15 @@ const ProductGrid = () => {
         </div>
       )}
 
-      {cartItems.length > 0 && isShopOpen && (
+      {hasMore && (
+        <div className="flex justify-center mt-8">
+          <button onClick={loadMore} className="bg-white border border-gray-200 text-gray-900 font-black px-8 py-3 rounded-full shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer">
+            Load More Groceries ↓
+          </button>
+        </div>
+      )}
+
+      {cartItems.length > 0 && storeStatus?.isOpen && (
         <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-8 md:w-96 z-40 animate-slideUp">
           <div onClick={() => setIsCartOpen(true)} className="bg-green-600 text-white rounded-2xl p-4 shadow-2xl shadow-green-600/30 flex items-center justify-between cursor-pointer hover:bg-green-700 transition-all border-2 border-green-500 transform hover:-translate-y-1 active:scale-95 group">
             <div className="flex flex-col">

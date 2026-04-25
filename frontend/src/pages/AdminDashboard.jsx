@@ -6,7 +6,6 @@ import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
 
 // 🚨 FIX 1: INITIALIZE SOCKET OUTSIDE THE COMPONENT!
-// This guarantees it connects exactly once and stops the infinite loop.
 const socketUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 const socket = io(socketUrl, {
   withCredentials: true,
@@ -34,12 +33,9 @@ const AdminDashboard = () => {
   const prevOrderCount = useRef(0);
   const navigate = useNavigate();
 
-  // Update ref whenever audio toggles
   useEffect(() => {
     audioRef.current = audioEnabled;
   }, [audioEnabled]);
-
-  
 
   const toggleAudio = () => {
     const newState = !audioEnabled;
@@ -49,7 +45,7 @@ const AdminDashboard = () => {
   };
 
   const playAlarm = () => {
-    if (!audioRef.current) return; // Safely checks the ref without triggering re-renders
+    if (!audioRef.current) return; 
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain();
@@ -76,7 +72,7 @@ const AdminDashboard = () => {
       socket.off('connect');
       socket.off('storeUpdated');
     };
-  }, []); // <--- EMPTY ARRAY STOPS THE INFINITE LOOP
+  }, []); 
 
   useEffect(() => {
     if (!storeStatus.isOpen) document.body.style.overflow = 'hidden';
@@ -126,10 +122,14 @@ const AdminDashboard = () => {
 
   const updateOrderStatus = async (id, newStatus) => {
     try {
-      await api.put(`/orders/${id}/status`, { status: newStatus.toLowerCase() });
+      // 🚨 PRODUCTION P0 FIX: Backend expects `orderStatus`, NOT `status`
+      await api.put(`/orders/${id}/status`, { orderStatus: newStatus.toLowerCase() });
+      
       if (['completed', 'cancelled'].includes(newStatus.toLowerCase())) { prevOrderCount.current -= 1; }
       setOrders(orders.map(order => order.id === id ? { ...order, orderStatus: newStatus.toLowerCase() } : order));
-    } catch (error) { }
+    } catch (error) { 
+      console.error("Status update failed:", error);
+    }
   };
 
   const startHandover = (order) => setHandoverModal({ isOpen: true, order: order, step: 'pin', pinInput: '', cashInput: '', change: 0, error: '' });
@@ -139,8 +139,10 @@ const AdminDashboard = () => {
     setHandoverModal(prev => ({ ...prev, error: '' })); 
     
     if (step === 'pin') {
-      const expectedPin = order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : ''; 
-      if (pinInput === expectedPin) {
+      // 🚨 PRODUCTION P0 FIX: Verify against the secure pickupPin, not the OrderID suffix!
+      const expectedPin = String(order.pickupPin); 
+      
+      if (String(pinInput) === expectedPin) {
         const requiresCash = order.paymentType === 'CASH' || order.orderStatus === 'pending_cash';
         
         if (requiresCash) {

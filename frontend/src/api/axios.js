@@ -2,49 +2,46 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
-  withCredentials: true, 
+  withCredentials: true,
 });
 
-// 🚨 STATE FOR THE RACE CONDITION FIX
+// ============================================================
+// CROSS-TAB TOKEN REFRESH WITH BROADCAST CHANNEL
+// ============================================================
 let isRefreshing = false;
 let refreshSubscribers = [];
 
-// Function to push waiting requests into the line
-const subscribeTokenRefresh = (cb) => {
-  refreshSubscribers.push(cb);
+// Allow multiple tabs to communicate
+const authChannel = new BroadcastChannel('auth_sync_channel');
+
+authChannel.onmessage = (event) => {
+  if (event.data === 'token_refreshed') {
+    onRefreshed();
+  }
 };
 
-// Function to tell all waiting requests "Go ahead!"
+const subscribeTokenRefresh = (cb) => refreshSubscribers.push(cb);
+
 const onRefreshed = () => {
   refreshSubscribers.forEach((cb) => cb());
   refreshSubscribers = [];
+  isRefreshing = false;
 };
 
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      
-      // Guard against infinite loops
-      if (
-        originalRequest.url?.includes('/auth/login') || 
-        originalRequest.url?.includes('/auth/logout') ||
-        originalRequest.url?.includes('/auth/refresh')
-      ) {
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const skipUrls = ['/auth/login', '/auth/logout', '/auth/refresh', '/auth/register'];
+      if (skipUrls.some((url) => originalRequest.url?.includes(url))) {
         return Promise.reject(error);
       }
 
-      // 🚨 THE QUEUE SYSTEM
       if (isRefreshing) {
-        // If another request is already refreshing the token, wait in line.
         return new Promise((resolve) => {
-          subscribeTokenRefresh(() => {
-            resolve(api(originalRequest));
-          });
+          subscribeTokenRefresh(() => resolve(api(originalRequest)));
         });
       }
 
@@ -52,34 +49,28 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        console.log('🔄 Access token expired. Attempting silent refresh...');
-        
         await api.post('/auth/refresh');
         
-        console.log('✅ Silent refresh successful! Retrying original request.');
-        
-        isRefreshing = false;
-        onRefreshed(); // Tell all waiting requests to retry now!
+        // 🚨 PRODUCTION FIX: Tell other open tabs that the token is fresh!
+        authChannel.postMessage('token_refreshed'); 
+        onRefreshed();
         
         return api(originalRequest);
-
       } catch (refreshError) {
-        console.error('❌ Silent refresh failed. Session is dead.');
-        
         isRefreshing = false;
-        refreshSubscribers = []; // Clear the queue
+        refreshSubscribers = [];
 
-        const currentPath = window.location.pathname;
-        const isPublicAuthPage = 
-          currentPath.startsWith('/login') || 
-          currentPath.startsWith('/forgot-password') || 
-          currentPath.startsWith('/reset-password') || 
-          currentPath.startsWith('/verify');
+        // Clean up session
+        localStorage.removeItem('lakshmi_cart');
+        localStorage.removeItem('customerData');
 
-        if (!isPublicAuthPage) {
+        const publicPaths = ['/login', '/forgot-password', '/reset-password', '/verify'];
+        const isPublic = publicPaths.some((p) => window.location.pathname.startsWith(p));
+
+        if (!isPublic) {
           window.location.href = '/login?expired=true';
         }
-        
+
         return Promise.reject(refreshError);
       }
     }

@@ -3,63 +3,99 @@ const router = express.Router();
 const User = require('../models/User');
 const { protect, admin } = require('../middlewares/authMiddleware');
 
-// GET: Customer fetches their own secure wallet balance
-// 🚨 SECURE: Now requires a valid token (protect)
+// ============================================================
+// GET /users/me — Customer: fetch own wallet & khata info
+// ============================================================
 router.get('/me', protect, async (req, res) => {
   try {
-    // 🚨 SECURE FIX: Never trust the frontend's email. 
-    // Extract the exact user ID from the verified JWT token.
-    const userId = req.user.id; 
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'name', 'email', 'phone', 'walletBalance', 'isKhataAllowed', 'khataBalance']
+    });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
 
-    const user = await User.findByPk(userId);
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       walletBalance: user.walletBalance || 0,
       isKhataAllowed: user.isKhataAllowed || false,
       khataBalance: user.khataBalance || 0
     });
   } catch (error) {
-    console.error("Error in /me:", error);
-    res.status(500).json({ success: false, message: "Database Error" });
+    console.error('❌ /users/me error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
 
-// GET: Admin fetches all users (for Khata management)
-// 🚨 SECURE: Only Admins can view the user list
+// ============================================================
+// GET /users/all — Admin: fetch all users (sensitive fields excluded)
+// ============================================================
 router.get('/all', protect, admin, async (req, res) => {
   try {
-    const users = await User.findAll({ order: [['createdAt', 'DESC']] });
+    const users = await User.findAll({
+      attributes: {
+        // Never send password hashes, OTPs, or reset tokens over the wire
+        exclude: [
+          'password', 'otp', 'otpExpiry', 'resetPasswordToken',
+          'resetPasswordExpire', 'refreshToken', 'lockUntil',
+          'loginAttempts', 'otpAttempts', 'lastOtpSentAt'
+        ]
+      },
+      order: [['createdAt', 'DESC']]
+    });
     res.json({ success: true, data: users });
   } catch (error) {
-    console.error("❌ CRITICAL DB ERROR in /users/all :", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('❌ /users/all error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch users.' });
   }
 });
 
-// PUT: Admin adds change to Wallet (Sillarai) or toggles Khata
-// 🚨 SECURE: Only Admins can modify wallet balances
+// ============================================================
+// PUT /users/update-wallet — Admin: adjust wallet or toggle khata
+// ============================================================
 router.put('/update-wallet', protect, admin, async (req, res) => {
   try {
     const { userId, email, addAmount, toggleKhata, clearKhata } = req.body;
-    
-    // Admins are allowed to specify the target user by email or ID here
-    let user;
-    if (email) user = await User.findOne({ where: { email: email } });
-    if (!user && userId) user = await User.findByPk(userId);
-    
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    if (addAmount) user.walletBalance = Number(user.walletBalance || 0) + Number(addAmount);
-    if (toggleKhata !== undefined) user.isKhataAllowed = toggleKhata;
-    if (clearKhata) user.khataBalance = 0;
+    let user = null;
+    if (email) user = await User.findOne({ where: { email: email.toLowerCase() } });
+    if (!user && userId) user = await User.findByPk(userId);
+
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    if (addAmount !== undefined) {
+      const amount = parseFloat(addAmount);
+      if (isNaN(amount)) {
+        return res.status(400).json({ success: false, message: 'addAmount must be a valid number.' });
+      }
+      user.walletBalance = Number(user.walletBalance || 0) + amount;
+    }
+
+    if (toggleKhata !== undefined) {
+      if (typeof toggleKhata !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'toggleKhata must be a boolean.' });
+      }
+      user.isKhataAllowed = toggleKhata;
+    }
+
+    if (clearKhata === true) {
+      user.khataBalance = 0;
+    }
 
     await user.save();
-    res.json({ success: true, user });
+
+    // Return only safe fields
+    const safeUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      walletBalance: user.walletBalance,
+      isKhataAllowed: user.isKhataAllowed,
+      khataBalance: user.khataBalance
+    };
+
+    res.json({ success: true, user: safeUser });
   } catch (error) {
-    console.error("Error in /update-wallet:", error);
-    res.status(500).json({ success: false, message: "Failed to update wallet" });
+    console.error('❌ /update-wallet error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update wallet.' });
   }
 });
 

@@ -17,13 +17,12 @@ const AdminProductManager = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Smart Form State
   const [formData, setFormData] = useState({
     id: null,
     name: '',
     categorySelection: 'Packaged Snacks',
     customCategoryName: '',
-    measurementType: 'piece', // 'piece' or 'weight'
+    measurementType: 'piece', 
     description: '',
     price: '',
     stock: '',
@@ -49,7 +48,6 @@ const AdminProductManager = () => {
     }
   };
 
-  // 🚨 SMART DROPDOWN LOGIC 🚨
   const handleCategoryChange = (e) => {
     const selected = e.target.value;
     const catData = PREDEFINED_CATEGORIES.find(c => c.name === selected);
@@ -57,7 +55,7 @@ const AdminProductManager = () => {
     setFormData({
       ...formData,
       categorySelection: selected,
-      measurementType: catData ? catData.type : 'piece' // Auto-switch to weight if Vegetables/Fruits!
+      measurementType: catData ? catData.type : 'piece' 
     });
   };
 
@@ -73,18 +71,17 @@ const AdminProductManager = () => {
 
   const openModal = (product = null) => {
     if (product) {
-      // Determine if it was a weight-based product (has 'loose' in the name)
       const isWeight = product.category?.toLowerCase().includes('loose');
       
       setFormData({
         id: product.id,
         name: product.name,
-        categorySelection: '+ Add Custom Category...', // Default to custom if editing to show raw category
+        categorySelection: '+ Add Custom Category...', 
         customCategoryName: product.category,
         measurementType: isWeight ? 'weight' : 'piece',
         description: product.description || '',
         price: product.price,
-        stock: product.real_stock ?? product.stock, // Fallback check
+        stock: product.real_stock ?? product.stock, 
         imageUrl: product.imageUrl || ''
       });
       setImagePreview(product.imageUrl || null);
@@ -99,20 +96,21 @@ const AdminProductManager = () => {
   };
 
   const saveProduct = async () => {
+    // 🚨 PRODUCTION FIX: Prevent Empty String / Free Item Exploit
+    if (!formData.name.trim()) return alert("Product Name is required.");
+    if (!formData.price || Number(formData.price) <= 0) return alert("A valid price greater than 0 is required.");
+    if (formData.stock === '' || Number(formData.stock) < 0) return alert("Valid stock quantity is required.");
+
     setIsSaving(true);
     try {
-      // 1. Determine the final Category Name to save to the database
       let finalCategory = formData.categorySelection === '+ Add Custom Category...' 
         ? formData.customCategoryName 
         : formData.categorySelection;
 
-      // 🚨 SECRET TAGGING: If sold by weight, ensure "Loose" is in the category name 
-      // so the Customer Storefront knows to trigger the 500g/1kg popup later!
       if (formData.measurementType === 'weight' && !finalCategory.toLowerCase().includes('loose')) {
         finalCategory += ' (Loose)';
       }
 
-      // 🚨 SPRINT 4 FIX: Package data as FormData so the image file can be sent to Cloudinary
       const submitData = new FormData();
       submitData.append('name', formData.name);
       submitData.append('category', finalCategory);
@@ -120,7 +118,6 @@ const AdminProductManager = () => {
       submitData.append('price', Number(formData.price));
       submitData.append('stock', Number(formData.stock));
       
-      // Attach the physical file if they uploaded a new one
       if (imageFile) {
         submitData.append('image', imageFile);
       }
@@ -213,7 +210,6 @@ const AdminProductManager = () => {
         </table>
       </div>
 
-      {/* 🚨 THE SMART MODAL 🚨 */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-slideInRight border border-gray-100">
@@ -231,7 +227,6 @@ const AdminProductManager = () => {
                   <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition" placeholder="e.g., Red Onion" />
                 </div>
                 
-                {/* 🚨 SMART CATEGORY DROPDOWN 🚨 */}
                 <div>
                   <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Category Setup</label>
                   <select value={formData.categorySelection} onChange={handleCategoryChange} className="w-full px-4 py-3 bg-white border-2 border-orange-300 rounded-xl font-bold text-orange-900 focus:ring-2 focus:ring-orange-500 outline-none transition cursor-pointer shadow-sm">
@@ -242,7 +237,6 @@ const AdminProductManager = () => {
                 </div>
               </div>
 
-              {/* 🚨 CUSTOM CATEGORY BUILDER 🚨 */}
               {formData.categorySelection === '+ Add Custom Category...' && (
                 <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
                   <div>
@@ -264,7 +258,6 @@ const AdminProductManager = () => {
                 <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition h-20 resize-none" placeholder="Freshly sourced daily..."></textarea>
               </div>
 
-              {/* 🚨 SMART PRICING LABELS 🚨 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-5 rounded-2xl border border-gray-100">
                 <div>
                   <label className={`block text-xs font-black uppercase tracking-widest mb-2 ${formData.measurementType === 'weight' ? 'text-blue-600' : 'text-gray-900'}`}>

@@ -22,11 +22,13 @@ const CartSlider = () => {
   
   const navigate = useNavigate();
 
-  // 🚨 FINAL AUDIT FIX: Calculate dynamic minimum time (Right Now)
-  const now = new Date();
-  const currentHours = now.getHours().toString().padStart(2, '0');
-  const currentMinutes = now.getMinutes().toString().padStart(2, '0');
-  const dynamicMinTime = `${currentHours}:${currentMinutes}`;
+  // Dynamic min time calculated for UI rendering
+  const getDynamicMinTime = () => {
+    const now = new Date();
+    const currentHours = now.getHours().toString().padStart(2, '0');
+    const currentMinutes = now.getMinutes().toString().padStart(2, '0');
+    return `${currentHours}:${currentMinutes}`;
+  };
 
   useEffect(() => {
     if (isCartOpen) {
@@ -35,12 +37,21 @@ const CartSlider = () => {
   }, [isCartOpen]);
 
   const handleCheckout = async () => {
-    if (cartItems.length === 0 || !isShopOpen) return;
+    // 🚨 PRODUCTION FIX: Prevent double-taps by enforcing loading state immediately
+    if (loading || cartItems.length === 0 || !isShopOpen) return;
     setError(null);
     
-    if (pickupTime === 'LATER' && !specificTime) {
-      setError("Please select a specific time for pickup.");
-      return;
+    // 🚨 PRODUCTION FIX: Time-Travel Checkout Prevention (Validating exactly at submit time)
+    if (pickupTime === 'LATER') {
+      if (!specificTime) {
+        setError("Please select a specific time for pickup.");
+        return;
+      }
+      const absoluteMinTime = getDynamicMinTime();
+      if (specificTime < absoluteMinTime) {
+        setError(`Pickup time cannot be in the past. Please select a time after ${absoluteMinTime}.`);
+        return;
+      }
     }
 
     if (!user) { 
@@ -56,6 +67,9 @@ const CartSlider = () => {
     const safePhone = user.phone || '9999999999';
     const finalPickupTime = pickupTime === 'LATER' ? specificTime : 'ASAP';
 
+    // Generate Idempotency Key to prevent duplicate charges on network lag
+    const idempotencyKey = window.crypto.randomUUID();
+
     try {
       const response = await api.post('/payment/create-order', {
         orderAmount: cartTotal,
@@ -69,6 +83,8 @@ const CartSlider = () => {
         paymentMethod: paymentMethod, 
         pickupTime: finalPickupTime,
         customerNote: customerNote
+      }, {
+        headers: { 'X-Idempotency-Key': idempotencyKey }
       });
 
       if (response.data.isCash) {
@@ -172,11 +188,8 @@ const CartSlider = () => {
                       type="time" 
                       value={specificTime} 
                       onChange={(e) => setSpecificTime(e.target.value)} 
-                      
-                      // 🚨 FINAL AUDIT FIX: Restricts users from picking a time in the past
-                      min={dynamicMinTime}
+                      min={getDynamicMinTime()}
                       max="22:00" 
-                      
                       className="flex-1 bg-gray-50 border border-gray-200 rounded-md p-2 outline-none focus:border-orange-500 text-gray-900" 
                     />
                   </div>

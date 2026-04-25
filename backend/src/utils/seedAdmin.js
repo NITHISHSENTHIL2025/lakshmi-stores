@@ -1,34 +1,34 @@
-const User = require('../models/User'); 
+const User = require('../models/User');
 require('dotenv').config();
 
 const seedAdmin = async () => {
   try {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@lakshmistores.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Kavitha@123';
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
-    const existingAdmin = await User.findOne({ where: { email: adminEmail } });
+    if (!adminEmail || !adminPassword) {
+      console.warn('⚠️ ADMIN_EMAIL or ADMIN_PASSWORD not set in .env. Skipping admin seed.');
+      return;
+    }
+
+    const existingAdmin = await User.findOne({ where: { email: adminEmail.toLowerCase() } });
 
     if (!existingAdmin) {
       await User.create({
         name: 'Master Admin',
-        email: adminEmail,
-        phone: '9999999999',
-        
-        // 🚨 FINAL AUDIT FIX: Passed as plain text! 
-        // The Sequelize 'beforeCreate' hook handles the hashing automatically. No more double-hashing lockouts.
-        password: adminPassword, 
-        
-        role: 'admin',            
-        isVerified: true,        
+        email: adminEmail.toLowerCase(),
+        phone: process.env.ADMIN_PHONE || '9999999999',
+        password: adminPassword, // Hashed by the beforeCreate Sequelize hook
+        role: 'admin',
+        isVerified: true,
         walletBalance: 0,
         khataBalance: 0,
         isKhataAllowed: false
-      }); 
-      console.log('✅ Master Admin account verified and secured!');
+      });
+      console.log('✅ Admin account created successfully.');
     } else {
-      console.log('✅ Master Admin account already exists. Skipping seed.');
+      console.log('✅ Admin account already exists. Skipping seed.');
     }
-
   } catch (error) {
     console.error('❌ Failed to seed admin:', error);
   }

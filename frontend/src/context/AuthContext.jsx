@@ -1,6 +1,6 @@
 import { createContext, useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from "../api/axios";
+import api from '../api/axios';
 
 const AuthContext = createContext();
 
@@ -14,21 +14,26 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
-        // 🚨 No local storage check needed. The browser sends the cookie automatically!
         const response = await api.get('/auth/me');
-        setUser(response.data.user); 
+        setUser(response.data.user);
       } catch (error) {
-        // If it fails, the cookie is missing, expired, or invalid.
-        setUser(null);
+        // 🚨 PRODUCTION FIX: Prevent "Elevator Cart Wipeout"
+        // Only destroy the cart and session if the backend explicitly says "Unauthorized"
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          setUser(null);
+          localStorage.removeItem('lakshmi_cart');
+          localStorage.removeItem('customerData');
+        } else {
+          // It was just a network drop or server 500 error. Don't wipe the cart!
+          setUser(null);
+        }
       } finally {
         setLoading(false);
       }
     };
-
     checkLoggedIn();
   }, []);
 
-  // 🚨 Login now only updates UI state. Cookies are set by the backend.
   const login = (userData) => {
     setUser(userData);
     if (userData.role === 'admin') {
@@ -38,22 +43,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 🚨 Logout now hits the backend to destroy the secure cookies
   const logout = async () => {
     try {
       await api.post('/auth/logout');
     } catch (err) {
-      console.error("Logout error", err);
+      console.error('Logout error:', err);
     } finally {
       setUser(null);
-      
-      // 1. Destroy the saved cart and local user data
       localStorage.removeItem('lakshmi_cart');
       localStorage.removeItem('customerData');
-      
-      // 2. Force a HARD browser reload to the login page. 
-      // This instantly flushes all React Context states from memory!
-      window.location.href = '/login'; 
+      window.location.href = '/login';
     }
   };
 
@@ -61,7 +60,7 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, loading }}>
       {!loading ? children : (
         <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
-           <div className="animate-spin h-10 w-10 border-4 border-orange-600 border-t-transparent rounded-full"></div>
+          <div className="animate-spin h-10 w-10 border-4 border-orange-600 border-t-transparent rounded-full"></div>
         </div>
       )}
     </AuthContext.Provider>

@@ -1,22 +1,39 @@
-// 🚨 AUDIT FIX: Centralized Error Handling & Response Standardization
+// ============================================================
+// CENTRALIZED ERROR HANDLER
+// ============================================================
 const errorHandler = (err, req, res, next) => {
-  console.error(`🚨 Global Error Caught: ${err.message}`);
+  // Log full error details on the server side
+  console.error(`🚨 [${new Date().toISOString()}] ${req.method} ${req.originalUrl} — ${err.message}`);
+  if (process.env.NODE_ENV === 'development') {
+    console.error(err.stack);
+  }
 
-  // Catch Multer File Size Error
+  // Multer: file too large
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ success: false, message: 'File is too large. Max size is 3MB.' });
+    return res.status(400).json({ success: false, message: 'File is too large. Maximum size is 3MB.' });
   }
 
-  // Catch Malicious Upload Error
+  // Multer: wrong file type
   if (err.message === 'LIMIT_FILE_TYPES') {
-     return res.status(400).json({ success: false, message: 'Security Error: Only .png, .jpg and .webp formats allowed!' });
+    return res.status(400).json({ success: false, message: 'Invalid file type. Only .jpg, .png, and .webp are allowed.' });
   }
 
-  // Standardized Swiggy-Level Response Format
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  // Sequelize unique constraint violation
+  if (err.name === 'SequelizeUniqueConstraintError') {
+    return res.status(409).json({ success: false, message: 'A record with that value already exists.' });
+  }
+
+  // Sequelize validation error
+  if (err.name === 'SequelizeValidationError') {
+    const message = err.errors.map(e => e.message).join(', ');
+    return res.status(400).json({ success: false, message });
+  }
+
+  // Default: hide internal details in production
+  const statusCode = res.statusCode && res.statusCode !== 200 ? res.statusCode : 500;
   return res.status(statusCode).json({
     success: false,
-    message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
+    message: process.env.NODE_ENV === 'production' ? 'An internal server error occurred.' : err.message,
     data: null
   });
 };

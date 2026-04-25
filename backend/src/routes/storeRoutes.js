@@ -1,14 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { DataTypes, Op } = require('sequelize'); 
+const rateLimit = require('express-rate-limit');
+const { body, validationResult } = require('express-validator');
+const { DataTypes, Op } = require('sequelize');
 const dbExport = require('../config/db');
 const sequelize = dbExport.sequelize || dbExport;
 const Order = require('../models/Order');
-
-// 🚨 IMPORT YOUR NEW SECURITY BOUNCERS
 const { protect, admin } = require('../middlewares/authMiddleware');
 
-// 1. DEFINE TABLES
+// ============================================================
+// MODELS (defined inline as they are store-specific config tables)
+// ============================================================
 const StoreSetting = sequelize.define('StoreSetting', {
   id: { type: DataTypes.INTEGER, primaryKey: true, defaultValue: 1 },
   isOpen: { type: DataTypes.BOOLEAN, defaultValue: true },
@@ -17,127 +19,175 @@ const StoreSetting = sequelize.define('StoreSetting', {
 });
 
 const ItemRequest = sequelize.define('ItemRequest', {
-  itemName: { type: DataTypes.STRING, allowNull: false, unique: true },
+  itemName: { type: DataTypes.STRING(100), allowNull: false, unique: true },
   requestCount: { type: DataTypes.INTEGER, defaultValue: 1 }
 });
 
-// 2. SAFELY INITIALIZE DB
 const initializeStoreDB = async () => {
   try {
-    await StoreSetting.sync({ alter: true });
-    await ItemRequest.sync({ alter: true });
-    
-    await StoreSetting.findOrCreate({ 
-      where: { id: 1 }, 
-      defaults: { isOpen: true, closingWarningActive: false } 
+    // Only sync in non-production environments to prevent accidental data loss
+    if (process.env.NODE_ENV !== 'production') {
+      await StoreSetting.sync({ alter: true });
+      await ItemRequest.sync({ alter: true });
+    }
+    await StoreSetting.findOrCreate({
+      where: { id: 1 },
+      defaults: { isOpen: true, closingWarningActive: false }
     });
-    console.log("✅ Store Settings DB Ready & Secured!");
+    console.log('✅ Store settings ready.');
   } catch (error) {
-    console.error("Failed to sync store DB:", error);
+    console.error('❌ Store settings DB error:', error);
   }
 };
 initializeStoreDB();
 
-// --- REAL API ROUTES ---
+// ============================================================
+// RATE LIMITER — For the public item request endpoint
+// ============================================================
+const requestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many item requests. Please try again later.' }
+});
 
-// 🟢 GET: Check if shop is open. (Must remain PUBLIC so customers can load the homepage)
+// ============================================================
+// INPUT VALIDATION HELPER
+// ============================================================
+const handleValidation = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: errors.array()[0].msg });
+  }
+  next();
+};
+
+// ============================================================
+// ROUTES
+// ============================================================
+
+// PUBLIC: Check if store is open
 router.get('/status', async (req, res) => {
   try {
     const status = await StoreSetting.findByPk(1);
-    res.json({ 
+    res.json({
       isOpen: status ? status.isOpen : true,
       closingWarningActive: status ? status.closingWarningActive : false,
       warningStartTime: status ? status.warningStartTime : null
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
+    console.error('❌ Store status error:', error);
+    res.status(500).json({ success: false, message: 'Could not fetch store status.' });
   }
 });
 
-// 🔴 POST: Admin toggles Shutter. (SECURED: protect + admin)
+// ADMIN: Toggle store open/closed
 router.post('/status', protect, admin, async (req, res) => {
   try {
     const { isOpen } = req.body;
+    if (typeof isOpen !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'isOpen must be a boolean.' });
+    }
 
-    // 🚨 AUDIT FIX: Checks 'pending_payment' AND 'pending_cash' 
     if (isOpen === false) {
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const pendingPayments = await Order.count({ 
-        where: { 
+      const pendingCount = await Order.count({
+        where: {
           orderStatus: { [Op.in]: ['pending_payment', 'pending_cash'] },
-          createdAt: { [Op.gte]: fiveMinsAgo } 
-        } 
+          createdAt: { [Op.gte]: fiveMinsAgo }
+        }
       });
-
-      if (pendingPayments > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          message: `Cannot close shop! ${pendingPayments} customer(s) are currently checking out. Please wait up to 5 minutes.` 
+      if (pendingCount > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot close shop. ${pendingCount} customer(s) are currently checking out. Please wait up to 5 minutes.`
         });
       }
     }
 
-    await StoreSetting.update({ 
-      isOpen, 
-      closingWarningActive: false, 
-      warningStartTime: null 
-    }, { where: { id: 1 } });
-    
+    await StoreSetting.update(
+      { isOpen, closingWarningActive: false, warningStartTime: null },
+      { where: { id: 1 } }
+    );
     res.json({ success: true, isOpen });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
+    console.error('❌ Store toggle error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update store status.' });
   }
 });
 
-// 🔴 POST: Admin triggers 10 Minute Warning. (SECURED: protect + admin)
+// ADMIN: Trigger 10-minute closing warning
 router.post('/trigger-warning', protect, admin, async (req, res) => {
   try {
-    await StoreSetting.update({ 
-      closingWarningActive: true, 
-      warningStartTime: new Date() 
-    }, { where: { id: 1 } });
+    await StoreSetting.update(
+      { closingWarningActive: true, warningStartTime: new Date() },
+      { where: { id: 1 } }
+    );
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
+    console.error('❌ Trigger warning error:', error);
+    res.status(500).json({ success: false, message: 'Failed to trigger warning.' });
   }
 });
 
-// 🔴 GET: Admin views Missing Item Requests. (SECURED: protect + admin)
+// ADMIN: View all item requests
 router.get('/requests', protect, admin, async (req, res) => {
   try {
     const requests = await ItemRequest.findAll({ order: [['updatedAt', 'DESC']] });
     res.json({ data: requests });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
+    console.error('❌ Fetch requests error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch requests.' });
   }
 });
 
-// 🟢 POST: Customer requests a missing item. (PUBLIC so anyone searching can request it)
-router.post('/requests', async (req, res) => {
-  try {
-    const { itemName } = req.body;
-    const [reqItem, created] = await ItemRequest.findOrCreate({
-      where: { itemName },
-      defaults: { requestCount: 1 }
-    });
-    
-    if (!created) {
-      reqItem.requestCount += 1;
-      await reqItem.save();
+// PUBLIC: Customer submits a missing item request (sanitized + rate limited)
+router.post(
+  '/requests',
+  requestLimiter,
+  [
+    body('itemName')
+      .trim()
+      .escape()
+      .notEmpty().withMessage('Item name is required.')
+      .isLength({ min: 2, max: 100 }).withMessage('Item name must be 2–100 characters.')
+  ],
+  handleValidation,
+  async (req, res) => {
+    try {
+      const { itemName } = req.body;
+
+      const [reqItem, created] = await ItemRequest.findOrCreate({
+        where: { itemName },
+        defaults: { requestCount: 1 }
+      });
+
+      if (!created) {
+        reqItem.requestCount += 1;
+        await reqItem.save();
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Item request error:', error);
+      res.status(500).json({ success: false, message: 'Failed to submit request.' });
     }
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
   }
-});
+);
 
-// 🔴 DELETE: Admin clears a request after buying stock. (SECURED: protect + admin)
+// ADMIN: Delete a resolved item request
 router.delete('/requests/:id', protect, admin, async (req, res) => {
   try {
-    await ItemRequest.destroy({ where: { id: req.params.id }});
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid request ID.' });
+    }
+    await ItemRequest.destroy({ where: { id } });
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'DB Error' });
+    console.error('❌ Delete request error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete request.' });
   }
 });
 

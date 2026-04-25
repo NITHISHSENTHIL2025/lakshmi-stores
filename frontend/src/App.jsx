@@ -1,26 +1,22 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 
 // API & Contexts
-import api from './api/axios';
+import { StoreProvider, useStore } from './context/StoreContext';
 import { CartProvider, useCart } from './context/CartContext';
 import { AuthProvider, useAuth } from './context/AuthContext'; 
 
 // Components
 import ProductGrid from './components/ProductGrid';
 import CartSlider from './components/CartSlider';
-
-// Pages
 import Login from './pages/Login';
-
 import AdminDashboard from './pages/AdminDashboard';
 import MyAccount from './pages/MyAccount';
 import MyOrders from './pages/MyOrders';
 import PaymentStatus from './pages/PaymentStatus';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword'; 
-import VerifyOTP from './pages/VerifyOTP'; // 🚨 AUDIT FIX: VerifyOTP is imported
+import VerifyOTP from './pages/VerifyOTP';
 
 const ProtectedAdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -43,7 +39,6 @@ const TopNav = () => {
   return (
     <nav className="bg-white shadow-sm p-4 sticky top-0 z-40 border-b border-gray-100">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
-        
         <div className="flex items-center gap-3">
           <Link to="/" className="text-2xl font-black text-gray-900 tracking-tighter hover:opacity-80 transition">
             Lakshmi<span className="text-orange-600">Stores</span>
@@ -80,14 +75,12 @@ const TopNav = () => {
 
 const BottomNav = () => {
   const location = useLocation();
-  const { user } = useAuth(); // 🚨 AUDIT FIX: Import user to protect tabs
+  const { user } = useAuth();
   const isActive = (path) => location.pathname === path ? "text-orange-600" : "text-gray-400";
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-40 flex justify-around items-center pb-safe pt-2 px-2 h-16">
       <Link to="/" className={`flex flex-col items-center gap-1 w-1/3 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
-      
-      {/* 🚨 AUDIT FIX: Hide Orders and Account tabs if logged out */}
       {user && (
         <>
           <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/3 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
@@ -98,24 +91,9 @@ const BottomNav = () => {
   );
 };
 
+// 🚨 PRODUCTION FIX: Using Global Store Context
 const CustomerLayout = ({ children }) => {
-  const [storeStatus, setStoreStatus] = useState({ isOpen: true, closingWarningActive: false });
-  const [statusLoading, setStatusLoading] = useState(true); // 🚨 AUDIT FIX: Prevent flash
-
-  useEffect(() => {
-    const checkStatus = async () => {
-      try { 
-        const res = await api.get('/store/status'); 
-        setStoreStatus(res.data); 
-      } catch (e) {
-      } finally {
-        setStatusLoading(false); // 🚨 AUDIT FIX: Disable spinner once loaded
-      }
-    };
-    checkStatus();
-    const interval = setInterval(checkStatus, 30000); 
-    return () => clearInterval(interval);
-  }, []);
+  const { storeStatus, statusLoading } = useStore();
 
   if (statusLoading) {
     return (
@@ -153,39 +131,34 @@ const CustomerLayout = ({ children }) => {
 function App() {
   return (
     <Router>
-      <AuthProvider>
-        <CartProvider>
-          <Toaster 
-            position="top-center" 
-            reverseOrder={false} 
-            toastOptions={{
-              style: { borderRadius: '16px', background: '#111827', color: '#fff', fontWeight: '900', padding: '16px 24px' },
-              error: { style: { background: '#ef4444', color: '#fff' } },
-              success: { style: { background: '#22c55e', color: '#fff' } }
-            }}
-          />
-          <div className="font-sans text-gray-900 bg-gray-50 min-h-screen">
-            <CartSlider />
-            <Routes>
-              {/* ADMIN SPACE */}
-              <Route path="/admin/*" element={<ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute>} />
-               
-              
-              {/* PUBLIC SPACE */}
-              <Route path="/login" element={<Login />} /> 
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password/:token" element={<ResetPassword />} /> 
-              <Route path="/verify-otp" element={<VerifyOTP />} />
-              <Route path="/payment-status" element={<CustomerLayout><PaymentStatus /></CustomerLayout>} />
-              <Route path="/" element={<CustomerLayout><ProductGrid /></CustomerLayout>} />
-
-              {/* CUSTOMER PROTECTED SPACE */}
-              <Route path="/account" element={<ProtectedCustomerRoute><CustomerLayout><MyAccount /></CustomerLayout></ProtectedCustomerRoute>} />
-              <Route path="/orders" element={<ProtectedCustomerRoute><CustomerLayout><MyOrders /></CustomerLayout></ProtectedCustomerRoute>} />
-            </Routes>
-          </div>
-        </CartProvider>
-      </AuthProvider>
+      <StoreProvider>
+        <AuthProvider>
+          <CartProvider>
+            <Toaster 
+              position="top-center" 
+              toastOptions={{
+                style: { borderRadius: '16px', background: '#111827', color: '#fff', fontWeight: '900', padding: '16px 24px' },
+                error: { style: { background: '#ef4444', color: '#fff' } },
+                success: { style: { background: '#22c55e', color: '#fff' } }
+              }}
+            />
+            <div className="font-sans text-gray-900 bg-gray-50 min-h-screen">
+              <CartSlider />
+              <Routes>
+                <Route path="/admin/*" element={<ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute>} />
+                <Route path="/login" element={<Login />} /> 
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password/:token" element={<ResetPassword />} /> 
+                <Route path="/verify-otp" element={<VerifyOTP />} />
+                <Route path="/payment-status" element={<CustomerLayout><PaymentStatus /></CustomerLayout>} />
+                <Route path="/" element={<CustomerLayout><ProductGrid /></CustomerLayout>} />
+                <Route path="/account" element={<ProtectedCustomerRoute><CustomerLayout><MyAccount /></CustomerLayout></ProtectedCustomerRoute>} />
+                <Route path="/orders" element={<ProtectedCustomerRoute><CustomerLayout><MyOrders /></CustomerLayout></ProtectedCustomerRoute>} />
+              </Routes>
+            </div>
+          </CartProvider>
+        </AuthProvider>
+      </StoreProvider>
     </Router>
   );
 }

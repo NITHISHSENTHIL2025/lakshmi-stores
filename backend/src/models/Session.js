@@ -1,36 +1,35 @@
 const { DataTypes } = require('sequelize');
-const dbExport = require('../config/db'); 
+const dbExport = require('../config/db');
 const sequelize = dbExport.sequelize || dbExport;
-
 
 const Session = sequelize.define('Session', {
   id: {
     type: DataTypes.UUID,
     defaultValue: DataTypes.UUIDV4,
-    primaryKey: true,
+    primaryKey: true
   },
   userId: {
     type: DataTypes.UUID,
-    allowNull: false,
-    // This will link back to your User model
+    allowNull: false
   },
   hashedToken: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: false
   },
   ipAddress: {
     type: DataTypes.STRING,
-    allowNull: true,
+    allowNull: true
   },
   userAgent: {
     type: DataTypes.STRING,
-    allowNull: true, // Will store things like "Chrome on Windows" or "Safari on iPhone"
+    allowNull: true
   },
   expiresAt: {
     type: DataTypes.DATE,
-    allowNull: false,
-  }},{
-  // 🚨 NEW: High-performance indexes so the DB doesn't slow down at scale
+    allowNull: false
+  }
+}, {
+  timestamps: true,
   indexes: [
     { fields: ['userId'] },
     { fields: ['hashedToken'] }

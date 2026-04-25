@@ -1,103 +1,178 @@
 const Product = require('../models/Product');
+const { Op } = require('sequelize');
 const dbExport = require('../config/db');
+const sequelize = dbExport.sequelize || dbExport;
 
-// Get all products (🚨 SPRINT 5 FIX: Only fetch ACTIVE products!)
+// ============================================================
+// GET ALL PRODUCTS — 🚨 PRODUCTION FIX: PAGINATION ADDED
+// ============================================================
 exports.getAllProducts = async (req, res) => {
   try {
-    const products = await Product.findAll({ 
-      where: { isActive: true }, // Hides deleted products
-      order: [['createdAt', 'DESC']] 
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit) || 50); // Default to 50 items
+    const offset = (page - 1) * limit;
+
+    const { count, rows: products } = await Product.findAndCountAll({
+      where: { isActive: true },
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
     });
-    res.status(200).json({ success: true, data: products });
+
+    res.status(200).json({
+      success: true,
+      data: products,
+      pagination: {
+        total: count,
+        page,
+        pages: Math.ceil(count / limit),
+        limit
+      }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server Error' });
+    console.error('❌ getAllProducts error:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching products.' });
   }
 };
 
-// Create product
+// ============================================================
+// CREATE PRODUCT — Admin only
+// ============================================================
 exports.createProduct = async (req, res) => {
   try {
-    let imageUrl = '';
-    if (req.file) imageUrl = req.file.path; 
-
     const { name, description, category, price, stock } = req.body;
-    
+
+    if (!name || !price) {
+      return res.status(400).json({ success: false, message: 'Product name and price are required.' });
+    }
+
+    const parsedPrice = parseFloat(price);
+    const parsedStock = parseInt(stock, 10);
+
+    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      return res.status(400).json({ success: false, message: 'Price must be a positive number.' });
+    }
+    if (isNaN(parsedStock) || parsedStock < 0) {
+      return res.status(400).json({ success: false, message: 'Stock must be a non-negative integer.' });
+    }
+
+    let imageUrl = '';
+    if (req.file) imageUrl = req.file.path;
+
+    // 🚨 PRODUCTION FIX: Auto-detect weight boolean to stop string-matching bugs
+    const isSoldByWeight = category?.toLowerCase().includes('loose');
+
     const product = await Product.create({
-      name, description, category, price, 
-      real_stock: stock || 0,
-      imageUrl: imageUrl 
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category?.trim() || 'General',
+      price: parsedPrice,
+      real_stock: parsedStock,
+      isSoldByWeight: isSoldByWeight, 
+      imageUrl
     });
-    
+
     res.status(201).json({ success: true, data: product });
   } catch (error) {
-    console.error("Create Product Error:", error);
-    res.status(500).json({ success: false, message: 'Failed to create product' });
+    console.error('❌ createProduct error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create product.' });
   }
 };
 
-// Update product
+// ============================================================
+// UPDATE PRODUCT — Admin only
+// ============================================================
 exports.updateProduct = async (req, res) => {
   try {
     const { name, description, category, price, stock } = req.body;
     const product = await Product.findByPk(req.params.id);
-    
-    if (!product) return res.status(404).json({ success: false, message: 'Not found' });
 
-    product.name = name || product.name;
-    product.description = description || product.description;
-    product.category = category || product.category;
-    product.price = price || product.price;
-    if (stock !== undefined) product.real_stock = stock;
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+
+    if (name) product.name = name.trim();
+    if (description !== undefined) product.description = description.trim();
+    
+    if (category) {
+      product.category = category.trim();
+      product.isSoldByWeight = category.toLowerCase().includes('loose');
+    }
+
+    if (price !== undefined) {
+      const parsedPrice = parseFloat(price);
+      if (isNaN(parsedPrice) || parsedPrice <= 0) {
+        return res.status(400).json({ success: false, message: 'Price must be a positive number.' });
+      }
+      product.price = parsedPrice;
+    }
+
+    if (stock !== undefined) {
+      const parsedStock = parseInt(stock, 10);
+      if (isNaN(parsedStock) || parsedStock < 0) {
+        return res.status(400).json({ success: false, message: 'Stock must be a non-negative integer.' });
+      }
+      product.real_stock = parsedStock;
+    }
 
     if (req.file) product.imageUrl = req.file.path;
 
     await product.save();
     res.status(200).json({ success: true, data: product });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to update' });
+    console.error('❌ updateProduct error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update product.' });
   }
 };
 
-// Delete product (🚨 TIER 1 FIX: SOFT DELETE)
+// ============================================================
+// DELETE PRODUCT — Soft delete
+// ============================================================
 exports.deleteProduct = async (req, res) => {
   try {
     const product = await Product.findByPk(req.params.id);
-    if (!product) return res.status(404).json({ success: false, message: 'Not found' });
-    
-    // We do NOT use product.destroy() anymore. That breaks historical receipts!
-    product.isActive = false; 
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+
+    product.isActive = false;
     await product.save();
-    
-    res.status(200).json({ success: true, message: 'Product securely archived' });
+
+    res.status(200).json({ success: true, message: 'Product archived successfully.' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to delete' });
+    console.error('❌ deleteProduct error:', error);
+    res.status(500).json({ success: false, message: 'Failed to archive product.' });
   }
 };
 
-// Quick POS (🚨 TIER 2 FIX: ATOMIC INCREMENTS PREVENT RACE CONDITIONS)
+// ============================================================
+// QUICK STOCK UPDATE — Atomic increment/decrement
+// ============================================================
 exports.quickStockUpdate = async (req, res) => {
   try {
-    const { action } = req.body; 
-    const product = await Product.findByPk(req.params.id);
-    
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+    const { action } = req.body;
 
-    // Atomic database queries. Prevents 2 cashiers from tapping at the exact same millisecond and causing a glitch.
-    if ((action === 'sell' || action === 'decrease') && product.real_stock > 0) {
-      await product.decrement('real_stock', { by: 1 });
-    } else if (action === 'add' || action === 'increase') {
-      await product.increment('real_stock', { by: 1 });
+    if (!['sell', 'decrease', 'add', 'increase'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid action. Use: sell, decrease, add, or increase.' });
     }
 
-    // Fetch fresh data to return to frontend
-    const updatedProduct = await Product.findByPk(req.params.id);
+    // 🚨 PRODUCTION FIX: Atomic Database Level Updates (Solves TOCTOU Race Condition)
+    if (action === 'sell' || action === 'decrease') {
+      const [updatedRows] = await Product.update(
+        { real_stock: sequelize.literal('real_stock - 1') },
+        { where: { id: req.params.id, real_stock: { [Op.gt]: 0 } } } // Only update if stock > 0
+      );
+      
+      if (updatedRows === 0) {
+        return res.status(400).json({ success: false, message: 'Cannot reduce stock below 0.' });
+      }
+    } else if (action === 'add' || action === 'increase') {
+      await Product.update(
+        { real_stock: sequelize.literal('real_stock + 1') },
+        { where: { id: req.params.id } }
+      );
+    }
 
-    res.status(200).json({ 
-      success: true, 
-      real_stock: updatedProduct.real_stock
-    });
+    const updatedProduct = await Product.findByPk(req.params.id);
+    res.status(200).json({ success: true, real_stock: updatedProduct.real_stock });
   } catch (error) {
-    console.error('Quick Stock Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error' });
+    console.error('❌ quickStockUpdate error:', error);
+    res.status(500).json({ success: false, message: 'Server error updating stock.' });
   }
 };

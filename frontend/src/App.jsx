@@ -29,6 +29,10 @@ const ProtectedCustomerRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
+  
+  // 🚨 STRICT ROLE FIX: Instantly bounce Admins out of customer-only pages
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
+  
   return children;
 };
 
@@ -81,7 +85,9 @@ const BottomNav = () => {
   return (
     <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-40 flex justify-around items-center pb-safe pt-2 px-2 h-16">
       <Link to="/" className={`flex flex-col items-center gap-1 w-1/3 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
-      {user && (
+      
+      {/* 🚨 STRICT ROLE FIX: Hide these tabs entirely from Admins */}
+      {user?.role === 'customer' && (
         <>
           <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/3 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
           <Link to="/account" className={`flex flex-col items-center gap-1 w-1/3 border-l border-gray-100 ${isActive('/account')}`}><span className="text-xl">👤</span><span className="text-[10px] font-black tracking-wider uppercase">Account</span></Link>

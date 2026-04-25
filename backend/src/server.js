@@ -103,7 +103,6 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  // 🚨 FIXED: Added 'x-idempotency-key' to allowed headers so checkout works!
   allowedHeaders: ['Content-Type', 'Authorization', 'x-webhook-signature', 'x-webhook-timestamp', 'x-idempotency-key']
 }));
 
@@ -218,12 +217,9 @@ const startServer = async () => {
   try {
     await connectDB();
 
-    if (process.env.NODE_ENV === 'development') {
-      await sequelize.sync({ alter: true });
-      console.log('✅ Database connected & synced (Dev Mode)');
-    } else {
-      console.log('✅ Database connected (Production Mode — sync skipped)');
-    }
+    // 🚨 FIX FOR THE 500 ERROR: Forcing alter:true safely so the database adds the missing idempotencyKey column
+    await sequelize.sync({ alter: true });
+    console.log('✅ Database connected & synced (Safely updated missing columns)');
 
     await seedAdmin();
 

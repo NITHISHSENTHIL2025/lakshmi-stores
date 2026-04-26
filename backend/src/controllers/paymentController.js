@@ -30,38 +30,52 @@ const CASHFREE_BASE_URL = process.env.NODE_ENV === 'production'
 // ============================================================
 exports.createOrder = async (req, res) => {
   try {
-    const { customerEmail, customerPhone, paymentMethod, pickupTime, customerNote } = req.body;
+    // 🚨 1. GHOST USER CHECK: Prevent crashes if the session expired exactly at checkout
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
+    }
+
+    let bodyData = req.body;
+
+    // 🚨 2. STRINGIFIED JSON CHECK: If frontend accidentally sent a string, parse it safely
+    if (typeof bodyData === 'string') {
+      try {
+        bodyData = JSON.parse(bodyData);
+      } catch (e) {
+        console.error('⚠️ Could not parse stringified payload:', bodyData);
+        bodyData = {};
+      }
+    }
+
+    const { customerEmail, customerPhone, paymentMethod, pickupTime, customerNote } = bodyData;
     const idempotencyKey = req.headers['x-idempotency-key'];
 
-    // 🚨 1. DEFENSIVE LOGGING: See exactly what the frontend is sending
-    console.log('📦 INCOMING CHECKOUT DATA:', JSON.stringify(req.body, null, 2));
+    console.log('📦 INCOMING CHECKOUT DATA:', JSON.stringify(bodyData, null, 2));
 
-    // 🚨 2. INVINCIBLE PAYLOAD EXTRACTOR: Catch the array no matter how it's wrapped
+    // 🚨 3. INVINCIBLE PAYLOAD EXTRACTOR
     let rawItems = [];
     
-    if (Array.isArray(req.body)) {
-      rawItems = req.body; // Frontend sent a raw array
-    } else if (req.body && typeof req.body === 'object') {
-      // Look for common frontend array names
-      rawItems = req.body.items || req.body.cartItems || req.body.cart || req.body.products || req.body.data;
+    if (Array.isArray(bodyData)) {
+      rawItems = bodyData;
+    } else if (bodyData && typeof bodyData === 'object') {
+      rawItems = bodyData.items || bodyData.cartItems || bodyData.cart || bodyData.products || bodyData.data;
       
-      // Ultimate fallback: Find the first array sitting inside the request body
       if (!rawItems || !Array.isArray(rawItems)) {
-        const foundArray = Object.values(req.body).find(val => Array.isArray(val));
+        const foundArray = Object.values(bodyData).find(val => Array.isArray(val));
         if (foundArray) rawItems = foundArray;
       }
     }
 
     if (!rawItems || !Array.isArray(rawItems) || rawItems.length === 0) {
-      console.warn('⚠️ Rejected Order: Cart data is missing or not an array.');
-      return res.status(400).json({ success: false, message: 'Your cart is empty or formatted incorrectly. Please refresh the page.' });
+      console.warn('⚠️ Rejected Order: Cart data is missing or invalid.');
+      return res.status(400).json({ success: false, message: 'Your cart is empty or formatted incorrectly. Please refresh.' });
     }
 
-    // 🚨 3. IDEMPOTENCY CHECK: Prevent double charges
+    // 🚨 4. IDEMPOTENCY CHECK
     if (idempotencyKey) {
       const existingOrder = await Order.findOne({ where: { idempotencyKey } });
       if (existingOrder) {
-        console.log(`♻️ Idempotency key matched! Returning existing order ID: ${existingOrder.orderToken}`);
+        console.log(`♻️ Idempotency matched! Returning existing order: ${existingOrder.orderToken}`);
         if (existingOrder.paymentType === 'CASH') {
           return res.status(200).json({ success: true, isCash: true, order_id: existingOrder.orderToken });
         } else {
@@ -86,26 +100,24 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // 🚨 4. DATABASE TRANSACTION: Lock rows to prevent race conditions (Swiggy-level stock management)
+    // 🚨 5. ACID DATABASE TRANSACTION
     const t = await sequelize.transaction();
 
     try {
       const userId = req.user.id;
-      const safeEmail = customerEmail || req.user?.email || 'customer@lakshmistores.com';
+      const safeEmail = customerEmail || req.user.email || 'customer@lakshmistores.com';
       const exactPaymentType = paymentMethod === 'cash' ? 'CASH' : 'ONLINE';
 
       let backendCalculatedTotal = 0;
       const finalItemsList = [];
 
-      // Sort items to prevent deadlocks in high-traffic scenarios
       const sortedItems = [...rawItems].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
       for (const item of sortedItems) {
-        if (!item || !item.id) continue; // Skip malformed array entries
+        if (!item || !item.id) continue; 
 
-        const qty = Math.max(1, Math.round(Number(item.quantity || 1))); // Force positive integer
+        const qty = Math.max(1, Math.round(Number(item.quantity || 1))); 
         
-        // Lock this specific product row so nobody else can buy the last item at the exact same millisecond
         const product = await Product.findByPk(item.id, { transaction: t, lock: t.LOCK.UPDATE });
 
         if (!product || product.isActive === false) {
@@ -156,7 +168,7 @@ exports.createOrder = async (req, res) => {
       }));
       await OrderItem.bulkCreate(orderItemsData, { transaction: t });
 
-      await t.commit(); // Success! Secure the transaction.
+      await t.commit(); 
 
       if (paymentMethod === 'cash') {
         const io = req.app.get('io');
@@ -164,7 +176,6 @@ exports.createOrder = async (req, res) => {
         return res.status(200).json({ success: true, isCash: true, order_id: fourDigitToken });
       }
 
-      // 🚨 5. PAYMENT GATEWAY INTEGRATION
       const payload = {
         order_id: cashfreeOrderId,
         order_amount: Number(backendCalculatedTotal),
@@ -190,7 +201,6 @@ exports.createOrder = async (req, res) => {
         return res.status(200).json({ success: true, payment_session_id: response.data.payment_session_id });
 
       } catch (cfError) {
-        // If Cashfree crashes, rollback the stock manually
         const t2 = await sequelize.transaction();
         try {
           for (const item of finalItemsList) {

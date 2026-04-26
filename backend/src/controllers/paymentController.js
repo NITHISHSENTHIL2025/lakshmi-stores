@@ -21,7 +21,9 @@ const formatAMPM = (time24) => {
   }
 };
 
-const CASHFREE_BASE_URL = process.env.NODE_ENV === 'production'
+// 🚨 PRODUCTION UPGRADE: Decouple App Environment from Gateway Environment.
+// This allows the app to run in strict Production mode while keeping payments in Sandbox for safe testing.
+const CASHFREE_BASE_URL = process.env.CASHFREE_ENVIRONMENT === 'production'
   ? 'https://api.cashfree.com/pg'
   : 'https://sandbox.cashfree.com/pg';
 

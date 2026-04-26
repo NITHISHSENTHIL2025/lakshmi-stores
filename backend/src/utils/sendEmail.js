@@ -1,32 +1,30 @@
-const { Resend } = require('resend');
-
-if (!process.env.RESEND_API_KEY) {
-  console.warn('⚠️ RESEND_API_KEY is not set. Emails will fail.');
-}
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// IMPORTANT BEFORE GO-LIVE:
-// 1. Go to https://resend.com/domains and add + verify your domain.
-// 2. Change FROM_EMAIL in your .env to e.g. noreply@yourdomain.com
-// 3. The free tier ONLY delivers to your own Resend account email.
-//    With a verified domain, you can send to any address.
+const nodemailer = require('nodemailer');
 
 const sendEmail = async ({ email, subject, message }) => {
   try {
-    const fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev';
-
-    await resend.emails.send({
-      from: `Lakshmi Stores <${fromEmail}>`,
-      to: email,
-      subject: subject,
-      html: message,
+    // 🚨 Swiggy-level reliability: Using Google's official, secure SMTP servers
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
     });
 
-    console.log(`✅ Email sent to ${email} — Subject: "${subject}"`);
+    const mailOptions = {
+      from: `"Lakshmi Stores" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: subject,
+      html: message
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Secure Email sent to ${email} — Subject: "${subject}"`);
+    
   } catch (error) {
-    console.error(`❌ Email sending failed to ${email}:`, error);
-    throw new Error('Email sending failed. Please try again later.');
+    console.error(`❌ SMTP Delivery failed to ${email}:`, error);
+    // This officially triggers the catch block in your auth controller if it fails!
+    throw new Error('Email delivery failed.'); 
   }
 };
 

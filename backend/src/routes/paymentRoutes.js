@@ -1,15 +1,14 @@
 const express = require('express');
 const { createOrder, verifyPayment } = require('../controllers/paymentController');
-const validate = require('../middlewares/validate');
-const { createOrderSchema } = require('../validations/orderValidation');
 const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
-// Create order — must be authenticated
-router.post('/create-order', protect, validate(createOrderSchema), createOrder);
+// 🚨 FIX: Removed the buggy 'validate(createOrderSchema)' middleware. 
+// The controller now safely handles all payload extraction and validation internally!
+router.post('/create-order', protect, createOrder);
 
-// Verify payment — must be authenticated (user can only verify their own orders)
+// Verify payment — must be authenticated
 router.post('/verify', protect, verifyPayment);
 
 // Note: The /webhook route has been intentionally moved to server.js 

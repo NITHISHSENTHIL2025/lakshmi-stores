@@ -103,74 +103,88 @@ exports.createOrder = async (req, res) => {
     }
 
     // 🚨 5. ACID DATABASE TRANSACTION
-    const t = await sequelize.transaction();
+    // 🚨 5. ACID DATABASE TRANSACTION
+    const t = await sequelize.transaction();
 
-    try {
-      const userId = req.user.id;
-      const safeEmail = customerEmail || req.user.email || 'customer@lakshmistores.com';
-      const exactPaymentType = paymentMethod === 'cash' ? 'CASH' : 'ONLINE';
+    try {
+      const userId = req.user.id;
+      const safeEmail = customerEmail || req.user.email || 'customer@lakshmistores.com';
+      const exactPaymentType = paymentMethod === 'cash' ? 'CASH' : 'ONLINE';
 
-      let backendCalculatedTotal = 0;
-      const finalItemsList = [];
+      let backendCalculatedTotal = 0;
+      const finalItemsList = [];
 
-      const sortedItems = [...rawItems].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const sortedItems = [...rawItems].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
-      for (const item of sortedItems) {
-        if (!item || !item.id) continue; 
+      for (const item of sortedItems) {
+        if (!item || !item.id) continue; 
 
-        const qty = Math.max(1, Math.round(Number(item.quantity || 1))); 
-        
-        const product = await Product.findByPk(item.id, { transaction: t, lock: t.LOCK.UPDATE });
+        const qty = Math.max(1, Math.round(Number(item.quantity || 1))); 
+        
+        // 1. Fetch the product just to get the price and name (No lock needed here anymore)
+        const product = await Product.findByPk(item.id, { transaction: t });
 
-        if (!product || product.isActive === false) {
-          await t.rollback();
-          return res.status(400).json({ success: false, message: `An item in your cart is no longer available.` });
-        }
+        if (!product || product.isActive === false) {
+          await t.rollback();
+          return res.status(400).json({ success: false, message: `An item in your cart is no longer available.` });
+        }
 
-        if (product.real_stock < qty) {
-          await t.rollback();
-          return res.status(400).json({ success: false, message: `Not enough stock for ${product.name}.` });
-        }
+        // 🚨 THE BULLETPROOF ATOMIC UPDATE 🚨
+        // This forces PostgreSQL to check the stock AND deduct it in the exact same millisecond.
+        const [updatedRows] = await Product.update(
+          { real_stock: sequelize.literal(`real_stock - ${qty}`) },
+          { 
+            where: { 
+              id: product.id,
+              real_stock: { [Op.gte]: qty } // MUST be greater than or equal to requested qty
+            }, 
+            transaction: t 
+          }
+        );
 
-        backendCalculatedTotal += Number(product.price) * qty;
-        finalItemsList.push({ id: product.id, name: product.name, price: product.price, quantity: qty, category: product.category });
+        // If updatedRows is 0, it means the WHERE clause failed (stock was too low to fulfill)
+        if (updatedRows === 0) {
+          await t.rollback();
+          return res.status(400).json({ success: false, message: `Oops! Someone just bought the last ${product.name}. Not enough stock.` });
+        }
 
-        await product.decrement('real_stock', { by: qty, transaction: t });
-      }
+        backendCalculatedTotal += Number(product.price) * qty;
+        finalItemsList.push({ id: product.id, name: product.name, price: product.price, quantity: qty, category: product.category });
+      }
 
-      if (backendCalculatedTotal < 1) {
-        await t.rollback();
-        return res.status(400).json({ success: false, message: 'Invalid order total.' });
-      }
+      if (backendCalculatedTotal < 1) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Invalid order total.' });
+      }
 
-      const dayString = String(new Date().getDate()).padStart(2, '0');
-      const randomHash = crypto.randomBytes(4).toString('hex').toUpperCase();
-      const fourDigitToken = `${dayString}-${randomHash.substring(0, 4)}`;
-      const cashfreeOrderId = 'ORD_' + crypto.randomBytes(6).toString('hex').toUpperCase();
-      const generatedPickupPin = crypto.randomInt(1000, 9999).toString();
+      const dayString = String(new Date().getDate()).padStart(2, '0');
+      const randomHash = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const fourDigitToken = `${dayString}-${randomHash.substring(0, 4)}`;
+      const cashfreeOrderId = 'ORD_' + crypto.randomBytes(6).toString('hex').toUpperCase();
+      const generatedPickupPin = crypto.randomInt(1000, 9999).toString();
 
-      const order = await Order.create({
-        userId,
-        totalAmount: backendCalculatedTotal,
-        orderAmount: backendCalculatedTotal,
-        orderStatus: paymentMethod === 'cash' ? 'pending_cash' : 'pending_payment',
-        paymentType: exactPaymentType,
-        cashfreeOrderId,
-        orderToken: fourDigitToken,
-        pickupPin: generatedPickupPin,
-        pickupTime: formattedPickupTime,
-        customerNote: customerNote ? String(customerNote).substring(0, 500) : null,
-        customerEmail: safeEmail,
-        customerPhone: safePhone,
-        idempotencyKey: idempotencyKey || null
-      }, { transaction: t });
+      const order = await Order.create({
+        userId,
+        totalAmount: backendCalculatedTotal,
+        orderAmount: backendCalculatedTotal,
+        orderStatus: paymentMethod === 'cash' ? 'pending_cash' : 'pending_payment',
+        paymentType: exactPaymentType,
+        cashfreeOrderId,
+        orderToken: fourDigitToken,
+        pickupPin: generatedPickupPin,
+        pickupTime: formattedPickupTime,
+        customerNote: customerNote ? String(customerNote).substring(0, 500) : null,
+        customerEmail: safeEmail,
+        customerPhone: safePhone,
+        idempotencyKey: idempotencyKey || null
+      }, { transaction: t });
 
-      const orderItemsData = finalItemsList.map(item => ({
-        orderId: order.id, productId: item.id, name: item.name, quantity: item.quantity, price: item.price
-      }));
-      await OrderItem.bulkCreate(orderItemsData, { transaction: t });
+      const orderItemsData = finalItemsList.map(item => ({
+        orderId: order.id, productId: item.id, name: item.name, quantity: item.quantity, price: item.price
+      }));
+      await OrderItem.bulkCreate(orderItemsData, { transaction: t });
 
-      await t.commit(); 
+      await t.commit();
 
       if (paymentMethod === 'cash') {
         const io = req.app.get('io');

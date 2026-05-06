@@ -96,7 +96,6 @@ const AdminProductManager = () => {
   };
 
   const saveProduct = async () => {
-    // 🚨 PRODUCTION FIX: Prevent Empty String / Free Item Exploit
     if (!formData.name.trim()) return alert("Product Name is required.");
     if (!formData.price || Number(formData.price) <= 0) return alert("A valid price greater than 0 is required.");
     if (formData.stock === '' || Number(formData.stock) < 0) return alert("Valid stock quantity is required.");
@@ -212,14 +211,18 @@ const AdminProductManager = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-slideInRight border border-gray-100 max-h-[90vh] overflow-y-auto">
+          
+          {/* 🚨 THE FIX IS HERE: flex flex-col and max-h-[90vh] on the wrapper */}
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-slideInRight border border-gray-100 flex flex-col max-h-[90vh]">
             
-            <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+            {/* Header stays pinned */}
+            <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight">{formData.id ? 'Edit Product' : 'Add New Real Product'}</h2>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 text-2xl font-black transition cursor-pointer">✕</button>
             </div>
 
-            <div className="p-6 md:p-8 space-y-6">
+            {/* 🚨 THE FIX IS HERE: overflow-y-auto and flex-1 applied to the inner form body */}
+            <div className="p-6 md:p-8 space-y-6 overflow-y-auto flex-1">
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -288,7 +291,8 @@ const AdminProductManager = () => {
 
             </div>
 
-            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+            {/* Footer stays pinned */}
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition cursor-pointer">Cancel</button>
               <button onClick={saveProduct} disabled={isSaving} className="px-8 py-3 bg-orange-600 text-white font-black rounded-xl shadow-lg hover:bg-orange-700 transition disabled:opacity-50 flex items-center gap-2 cursor-pointer">
                 {isSaving ? 'Saving...' : 'Save Product Data'}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom'; // 🚨 PORTAL IMPORTED HERE
 import api from '../api/axios';
 
 const PREDEFINED_CATEGORIES = [
@@ -209,103 +210,97 @@ const AdminProductManager = () => {
         </table>
       </div>
 
-      {isModalOpen && (
-        /* 🚨 THE FAIL-SAFE MODAL: The dark background handles the scrolling, not the white box! */
-        <div className="fixed inset-0 z-[100] overflow-y-auto bg-gray-900/80 backdrop-blur-sm">
+      {/* 🚨 THE ULTIMATE REACT PORTAL FIX */}
+      {isModalOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           
-          {/* min-h-full ensures the box is always vertically centered if it's small, but allows it to push down if it gets tall */}
-          <div className="flex min-h-full items-center justify-center p-4 text-center sm:p-8">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden animate-slideInRight border border-gray-100">
             
-            {/* The white box just naturally contains its elements. Notice my-8 adds a gap at the top and bottom so it never touches the screen edge. */}
-            <div className="w-full max-w-2xl transform overflow-hidden rounded-[2rem] bg-white text-left align-middle shadow-2xl transition-all animate-slideInRight my-8">
-              
-              {/* Header */}
-              <div className="px-6 py-6 md:px-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">{formData.id ? 'Edit Product' : 'Add New Real Product'}</h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 text-2xl font-black transition cursor-pointer">✕</button>
-              </div>
+            {/* Header (Pinned) */}
+            <div className="flex-none p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight">{formData.id ? 'Edit Product' : 'Add New Real Product'}</h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 text-2xl font-black transition cursor-pointer">✕</button>
+            </div>
 
-              {/* Body */}
-              <div className="px-6 py-6 md:px-8 space-y-6 bg-white">
+            {/* Body (Scrolling) */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Product Name</label>
+                  <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition" placeholder="e.g., Red Onion" />
+                </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Product Name</label>
-                    <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition" placeholder="e.g., Red Onion" />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Category Setup</label>
-                    <select value={formData.categorySelection} onChange={handleCategoryChange} className="w-full px-4 py-3 bg-white border-2 border-orange-300 rounded-xl font-bold text-orange-900 focus:ring-2 focus:ring-orange-500 outline-none transition cursor-pointer shadow-sm">
-                      {PREDEFINED_CATEGORIES.map(cat => (
-                        <option key={cat.name} value={cat.name}>{cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {formData.categorySelection === '+ Add Custom Category...' && (
-                  <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
-                    <div>
-                      <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">New Category Name</label>
-                      <input type="text" value={formData.customCategoryName} onChange={e => setFormData({...formData, customCategoryName: e.target.value})} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl font-bold focus:ring-2 focus:ring-orange-500 outline-none" placeholder="e.g., Imported Chocolates" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">How is it sold?</label>
-                      <div className="flex bg-white rounded-xl border border-orange-200 overflow-hidden p-1">
-                        <button onClick={() => setFormData({...formData, measurementType: 'piece'})} className={`flex-1 py-2 text-sm font-black rounded-lg transition-colors cursor-pointer ${formData.measurementType === 'piece' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>By Piece/Packet</button>
-                        <button onClick={() => setFormData({...formData, measurementType: 'weight'})} className={`flex-1 py-2 text-sm font-black rounded-lg transition-colors cursor-pointer ${formData.measurementType === 'weight' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>By Weight (KG)</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div>
-                  <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Description (Optional)</label>
-                  <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition h-20 resize-none" placeholder="Freshly sourced daily..."></textarea>
+                  <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Category Setup</label>
+                  <select value={formData.categorySelection} onChange={handleCategoryChange} className="w-full px-4 py-3 bg-white border-2 border-orange-300 rounded-xl font-bold text-orange-900 focus:ring-2 focus:ring-orange-500 outline-none transition cursor-pointer shadow-sm">
+                    {PREDEFINED_CATEGORIES.map(cat => (
+                      <option key={cat.name} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                  <div>
-                    <label className={`block text-xs font-black uppercase tracking-widest mb-2 ${formData.measurementType === 'weight' ? 'text-blue-600' : 'text-gray-900'}`}>
-                      {formData.measurementType === 'weight' ? 'Price per 1 KG (₹)' : 'Price per Packet/Piece (₹)'}
-                    </label>
-                    <input type="number" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-lg focus:ring-2 focus:ring-orange-500 outline-none transition shadow-sm" placeholder="e.g., 40" />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-black uppercase tracking-widest mb-2 ${formData.measurementType === 'weight' ? 'text-blue-600' : 'text-gray-900'}`}>
-                      {formData.measurementType === 'weight' ? 'Total Stock (in KG)' : 'Total Stock Quantity'}
-                    </label>
-                    <input type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-lg focus:ring-2 focus:ring-orange-500 outline-none transition shadow-sm" placeholder="e.g., 50" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Product Image</label>
-                  <div className="flex items-center gap-4">
-                    <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center bg-gray-50 overflow-hidden relative group">
-                       {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" /> : <span className="text-3xl text-gray-300">📸</span>}
-                    </div>
-                    <div className="flex-1">
-                      <input type="file" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-black file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer transition" accept="image/*" />
-                      <p className="text-xs text-gray-400 font-bold mt-2">JPEG or PNG. Max size 2MB.</p>
-                    </div>
-                  </div>
-                </div>
-
               </div>
 
-              {/* Footer */}
-              <div className="px-6 py-6 md:px-8 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-                <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition cursor-pointer">Cancel</button>
-                <button onClick={saveProduct} disabled={isSaving} className="px-8 py-3 bg-orange-600 text-white font-black rounded-xl shadow-lg hover:bg-orange-700 transition disabled:opacity-50 flex items-center gap-2 cursor-pointer">
-                  {isSaving ? 'Saving...' : 'Save Product Data'}
-                </button>
+              {formData.categorySelection === '+ Add Custom Category...' && (
+                <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
+                  <div>
+                    <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">New Category Name</label>
+                    <input type="text" value={formData.customCategoryName} onChange={e => setFormData({...formData, customCategoryName: e.target.value})} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl font-bold focus:ring-2 focus:ring-orange-500 outline-none" placeholder="e.g., Imported Chocolates" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">How is it sold?</label>
+                    <div className="flex bg-white rounded-xl border border-orange-200 overflow-hidden p-1">
+                      <button onClick={() => setFormData({...formData, measurementType: 'piece'})} className={`flex-1 py-2 text-sm font-black rounded-lg transition-colors cursor-pointer ${formData.measurementType === 'piece' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>By Piece/Packet</button>
+                      <button onClick={() => setFormData({...formData, measurementType: 'weight'})} className={`flex-1 py-2 text-sm font-black rounded-lg transition-colors cursor-pointer ${formData.measurementType === 'weight' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>By Weight (KG)</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Description (Optional)</label>
+                <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium focus:ring-2 focus:ring-orange-500 focus:bg-white outline-none transition h-20 resize-none" placeholder="Freshly sourced daily..."></textarea>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                <div>
+                  <label className={`block text-xs font-black uppercase tracking-widest mb-2 ${formData.measurementType === 'weight' ? 'text-blue-600' : 'text-gray-900'}`}>
+                    {formData.measurementType === 'weight' ? 'Price per 1 KG (₹)' : 'Price per Packet/Piece (₹)'}
+                  </label>
+                  <input type="number" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-lg focus:ring-2 focus:ring-orange-500 outline-none transition shadow-sm" placeholder="e.g., 40" />
+                </div>
+                <div>
+                  <label className={`block text-xs font-black uppercase tracking-widest mb-2 ${formData.measurementType === 'weight' ? 'text-blue-600' : 'text-gray-900'}`}>
+                    {formData.measurementType === 'weight' ? 'Total Stock (in KG)' : 'Total Stock Quantity'}
+                  </label>
+                  <input type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-black text-lg focus:ring-2 focus:ring-orange-500 outline-none transition shadow-sm" placeholder="e.g., 50" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-900 uppercase tracking-widest mb-2">Product Image</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center bg-gray-50 overflow-hidden relative group">
+                     {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" /> : <span className="text-3xl text-gray-300">📸</span>}
+                  </div>
+                  <div className="flex-1">
+                    <input type="file" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-black file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer transition" accept="image/*" />
+                    <p className="text-xs text-gray-400 font-bold mt-2">JPEG or PNG. Max size 2MB.</p>
+                  </div>
+                </div>
               </div>
 
             </div>
+
+            {/* Footer (Pinned) */}
+            <div className="flex-none p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+              <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition cursor-pointer">Cancel</button>
+              <button onClick={saveProduct} disabled={isSaving} className="px-8 py-3 bg-orange-600 text-white font-black rounded-xl shadow-lg hover:bg-orange-700 transition disabled:opacity-50 flex items-center gap-2 cursor-pointer">
+                {isSaving ? 'Saving...' : 'Save Product Data'}
+              </button>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body // 🚨 THIS IS WHAT DETACHES IT FROM THE CSS TRAP
       )}
     </div>
   );

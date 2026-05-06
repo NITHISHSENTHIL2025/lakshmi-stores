@@ -32,9 +32,8 @@ const Login = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (user && !error) {
-      navigate(user.role === 'admin' ? '/admin' : '/');
-    }
+    // 🚨 We removed the manual navigate here because AuthContext handles routing!
+    // This prevents race conditions where the context isn't fully loaded yet.
   }, [user, error, navigate]);
 
   useEffect(() => {
@@ -76,7 +75,9 @@ const Login = () => {
           password: formData.password
         });
         toast.success(response.data.user.role === 'admin' ? 'Welcome back, Admin!' : 'Login successful!');
-        login(response.data.user);
+        
+        // 🚨 PRODUCTION FIX: Pass User AND Tokens
+        login(response.data.user, response.data.accessToken, response.data.refreshToken);
 
       } else if (view === 'register') {
         await api.post('/auth/register', {
@@ -94,7 +95,9 @@ const Login = () => {
           otp
         });
         toast.success('Account verified! Welcome!');
-        login(response.data.user);
+        
+        // 🚨 PRODUCTION FIX: Pass User AND Tokens
+        login(response.data.user, response.data.accessToken, response.data.refreshToken);
       }
     } catch (err) {
       const msg = err.response?.data?.message || 'Authentication failed. Please try again.';

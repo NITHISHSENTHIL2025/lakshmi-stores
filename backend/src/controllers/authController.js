@@ -9,7 +9,8 @@ const sendEmail = require('../utils/sendEmail');
 const isStrongPassword = (password) =>
   /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,128}$/.test(password);
 
-const attachCookies = async (res, user, req) => {
+// 🚨 THE FIX: Return tokens instead of setting cookies
+const generateTokens = async (user, req) => {
   const accessToken = jwt.sign({ id: user.id }, process.env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
 
@@ -26,15 +27,7 @@ const attachCookies = async (res, user, req) => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   });
 
-  // 🚨 THE FIX: Hardcoded for secure, cross-domain mobile support
-  const cookieOptions = { 
-    httpOnly: true, 
-    secure: true, 
-    sameSite: 'none' 
-  };
-
-  res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
-  res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
+  return { accessToken, refreshToken };
 };
 
 const register = async (req, res) => {
@@ -127,13 +120,14 @@ const verifyOtp = async (req, res) => {
     user.lockUntil = null;
     await user.save();
 
-    await attachCookies(res, user, req);
+    // 🚨 Get tokens and send in JSON response
+    const { accessToken, refreshToken } = await generateTokens(user, req);
 
     const userData = user.toJSON();
     delete userData.password; delete userData.otp; delete userData.otpExpiry; 
     delete userData.resetPasswordToken; delete userData.resetPasswordExpire;
 
-    res.status(200).json({ success: true, user: userData });
+    res.status(200).json({ success: true, user: userData, accessToken, refreshToken });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error during verification.' });
   }
@@ -166,13 +160,14 @@ const login = async (req, res) => {
     user.lockUntil = null;
     await user.save();
 
-    await attachCookies(res, user, req);
+    // 🚨 Get tokens and send in JSON response
+    const { accessToken, refreshToken } = await generateTokens(user, req);
 
     const userData = user.toJSON();
     delete userData.password; delete userData.otp; delete userData.otpExpiry; 
     delete userData.resetPasswordToken; delete userData.resetPasswordExpire;
 
-    res.status(200).json({ success: true, user: userData });
+    res.status(200).json({ success: true, user: userData, accessToken, refreshToken });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error during login.' });
   }
@@ -180,7 +175,8 @@ const login = async (req, res) => {
 
 const refresh = async (req, res) => {
   try {
-    const { refreshToken } = req.cookies;
+    // 🚨 Read refresh token from body
+    const { refreshToken } = req.body;
     if (!refreshToken) return res.status(401).json({ success: false, message: 'No refresh token found.' });
 
     let decoded;
@@ -199,30 +195,23 @@ const refresh = async (req, res) => {
     }
 
     await session.destroy();
-    await attachCookies(res, user, req);
-    res.status(200).json({ success: true, message: 'Tokens refreshed.' });
+    
+    // 🚨 Get new tokens and send in JSON response
+    const { accessToken, refreshToken: newRefreshToken } = await generateTokens(user, req);
+    res.status(200).json({ success: true, message: 'Tokens refreshed.', accessToken, refreshToken: newRefreshToken });
   } catch (error) {
     res.status(403).json({ success: false, message: 'Token refresh failed.' });
   }
 };
 
 const logout = async (req, res) => {
-  const token = req.cookies.refreshToken;
-  
-  // 🚨 THE FIX: Apply same secure cross-domain logic for clearing cookies
-  const clearCookieOptions = { 
-    httpOnly: true, 
-    secure: true, 
-    sameSite: 'none' 
-  };
+  // 🚨 Read refresh token from body
+  const { refreshToken } = req.body;
 
-  res.clearCookie('accessToken', clearCookieOptions);
-  res.clearCookie('refreshToken', clearCookieOptions);
-
-  if (token) {
+  if (refreshToken) {
     try {
-      const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-      const hashedIncomingToken = crypto.createHash('sha256').update(token).digest('hex');
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+      const hashedIncomingToken = crypto.createHash('sha256').update(refreshToken).digest('hex');
       await Session.destroy({ where: { userId: decoded.id, hashedToken: hashedIncomingToken } });
     } catch (e) {}
   }
@@ -232,16 +221,6 @@ const logout = async (req, res) => {
 const logoutAllDevices = async (req, res) => {
   try {
     await Session.destroy({ where: { userId: req.user.id } });
-    
-    // 🚨 THE FIX: Apply same secure cross-domain logic
-    const clearCookieOptions = { 
-      httpOnly: true, 
-      secure: true, 
-      sameSite: 'none' 
-    };
-    
-    res.clearCookie('accessToken', clearCookieOptions);
-    res.clearCookie('refreshToken', clearCookieOptions);
     res.status(200).json({ success: true, message: 'Logged out of all devices.' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to logout from all devices.' });

@@ -7,12 +7,17 @@ if (!process.env.JWT_ACCESS_SECRET) {
 }
 
 // ============================================================
-// PROTECT — Verifies the access token cookie
+// PROTECT — Verifies the access token from Authorization Header
 // Uses JWT_ACCESS_SECRET (separate from refresh secret)
 // ============================================================
 const protect = async (req, res, next) => {
   try {
-    const token = req.cookies.accessToken;
+    let token;
+
+    // 🚨 Extract Token from Bearer Header instead of Cookie
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
 
     if (!token) {
       return res.status(401).json({ success: false, message: 'Not authorized. Please log in.' });

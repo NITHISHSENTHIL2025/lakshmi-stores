@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { useAuth } from '../context/AuthContext'; // 🚨 NEW: Added Auth Context
+import { useAuth } from '../context/AuthContext';
 
 const VerifyOTP = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth(); // 🚨 NEW: Extract the login function
+  const { login } = useAuth(); 
   
   // Grab the email passed from the Register page, or fallback to local storage
   const email = location.state?.email || localStorage.getItem('pendingVerificationEmail');
@@ -43,15 +43,8 @@ const VerifyOTP = () => {
       toast.success('Account Verified! Welcome to Lakshmi Stores.');
       localStorage.removeItem('pendingVerificationEmail');
       
-      // 🚨 NEW: Tell React the user is logged in so the Navbar updates instantly!
-      login(response.data.user);
-      
-      // 🚨 FAST SPA REDIRECT: Uses React Router instead of hard reload
-      if (response.data.user.role === 'admin') {
-        navigate('/admin');
-      } else {
-        navigate('/');
-      }
+      // 🚨 PRODUCTION FIX: Pass User AND Tokens to the AuthContext
+      login(response.data.user, response.data.accessToken, response.data.refreshToken);
       
     } catch (error) {
       toast.error(error.response?.data?.message || 'Verification failed. Please try again.');

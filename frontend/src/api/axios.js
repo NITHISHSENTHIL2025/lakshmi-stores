@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
-  withCredentials: true,
+  // 🚨 REMOVED withCredentials: true (We no longer use cookies)
 });
 
 // ============================================================
@@ -28,6 +28,15 @@ const onRefreshed = () => {
   isRefreshing = false;
 };
 
+// 🚨 NEW: Inject Token into every outgoing request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -49,18 +58,30 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        await api.post('/auth/refresh');
+        const currentRefreshToken = localStorage.getItem('refreshToken');
+        if (!currentRefreshToken) throw new Error("No refresh token available");
+
+        // 🚨 Fetch new tokens by sending old refresh token in body
+        const { data } = await api.post('/auth/refresh', { refreshToken: currentRefreshToken });
+        
+        // 🚨 Save new tokens to LocalStorage
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
         
         // 🚨 PRODUCTION FIX: Tell other open tabs that the token is fresh!
         authChannel.postMessage('token_refreshed'); 
         onRefreshed();
         
+        // Retry original request with new header
+        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
         isRefreshing = false;
         refreshSubscribers = [];
 
         // Clean up session
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('lakshmi_cart');
         localStorage.removeItem('customerData');
 

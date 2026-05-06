@@ -13,18 +13,27 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const checkLoggedIn = async () => {
+      // 🚨 CRITICAL: Before asking the backend, check if we even have a token
+      const token = localStorage.getItem('accessToken');
+      
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = await api.get('/auth/me');
         setUser(response.data.user);
       } catch (error) {
-        // 🚨 PRODUCTION FIX: Prevent "Elevator Cart Wipeout"
-        // Only destroy the cart and session if the backend explicitly says "Unauthorized"
+        // Prevent "Elevator Cart Wipeout" - Only wipe if backend explicitly says 401/403
         if (error.response && (error.response.status === 401 || error.response.status === 403)) {
           setUser(null);
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
           localStorage.removeItem('lakshmi_cart');
           localStorage.removeItem('customerData');
         } else {
-          // It was just a network drop or server 500 error. Don't wipe the cart!
+          // Network drop or 500 error - Keep the user state as is (handled by interceptor if needed)
           setUser(null);
         }
       } finally {
@@ -34,8 +43,15 @@ export const AuthProvider = ({ children }) => {
     checkLoggedIn();
   }, []);
 
-  const login = (userData) => {
+  // 🚨 The login function now accepts tokens and saves them
+  const login = (userData, accessToken, refreshToken) => {
     setUser(userData);
+    
+    // Save tokens and user data securely to LocalStorage
+    if (accessToken) localStorage.setItem('accessToken', accessToken);
+    if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('customerData', JSON.stringify(userData));
+
     if (userData.role === 'admin') {
       navigate('/admin');
     } else {
@@ -45,11 +61,16 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await api.post('/auth/logout');
+      // Grab refresh token from storage to send in body
+      const refreshToken = localStorage.getItem('refreshToken');
+      await api.post('/auth/logout', { refreshToken });
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
       setUser(null);
+      // 🚨 Wipe everything out
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
       localStorage.removeItem('lakshmi_cart');
       localStorage.removeItem('customerData');
       window.location.href = '/login';

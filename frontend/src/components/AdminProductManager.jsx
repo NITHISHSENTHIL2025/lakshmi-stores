@@ -212,7 +212,7 @@ const AdminProductManager = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-slideInRight border border-gray-100">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-slideInRight border border-gray-100 max-h-[90vh] overflow-y-auto">
             
             <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight">{formData.id ? 'Edit Product' : 'Add New Real Product'}</h2>

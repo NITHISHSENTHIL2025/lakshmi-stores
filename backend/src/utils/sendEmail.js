@@ -1,32 +1,28 @@
+const nodemailer = require('nodemailer');
+
 const sendEmail = async ({ email, subject, message }) => {
   try {
-    // 🚨 TRUE ENTERPRISE ARCHITECTURE: HTTP Email API (Port 443)
-    // Render CANNOT block this because it travels over standard HTTPS web traffic.
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        // 🚨 IMPORTANT: On the free tier without a custom domain, you MUST use this exact 'from' address
-        from: 'Lakshmi Stores <onboarding@resend.dev>', 
-        to: email,
-        subject: subject,
-        html: message
-      })
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || "sandbox.smtp.mailtrap.io",
+      port: process.env.EMAIL_PORT || 2525,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Resend API Error Details:', errorData);
-      throw new Error(`API Error: ${errorData.message || response.statusText}`);
-    }
+    const mailOptions = {
+      from: '"Lakshmi Stores" <verify@lakshmistores.com>',
+      to: email,
+      subject: subject,
+      html: message
+    };
 
-    console.log(`✅ Secure HTTP Email sent to ${email} via Resend API`);
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ OTP captured in Mailtrap for: ${email}`);
     
   } catch (error) {
-    console.error(`❌ Email Delivery failed to ${email}:`, error.message);
+    console.error(`❌ Mailtrap Error:`, error.message);
     throw new Error('Email delivery failed.'); 
   }
 };

@@ -1,28 +1,34 @@
-const nodemailer = require('nodemailer');
-
 const sendEmail = async ({ email, subject, message }) => {
   try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || "sandbox.smtp.mailtrap.io",
-      port: process.env.EMAIL_PORT || 2525,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: { 
+          name: "Lakshmi Stores", 
+          email: "nithishsenthil2025@gmail.com" 
+        },
+        to: [{ email: email }],
+        subject: subject,
+        htmlContent: message
+      })
     });
 
-    const mailOptions = {
-      from: '"Lakshmi Stores" <verify@lakshmistores.com>',
-      to: email,
-      subject: subject,
-      html: message
-    };
+    const data = await response.json();
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ OTP captured in Mailtrap for: ${email}`);
+    if (!response.ok) {
+      console.error('Brevo Error Details:', data);
+      throw new Error(data.message || 'Brevo API error');
+    }
+
+    console.log(`✅ Real email delivered via Brevo API to: ${email}`);
     
   } catch (error) {
-    console.error(`❌ Mailtrap Error:`, error.message);
+    console.error(`❌ Delivery failed:`, error.message);
     throw new Error('Email delivery failed.'); 
   }
 };

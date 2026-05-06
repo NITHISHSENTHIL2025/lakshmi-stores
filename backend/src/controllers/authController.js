@@ -26,8 +26,12 @@ const attachCookies = async (res, user, req) => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   });
 
-  const isProduction = process.env.NODE_ENV === 'production';
-  const cookieOptions = { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax' };
+  // 🚨 THE FIX: Hardcoded for secure, cross-domain mobile support
+  const cookieOptions = { 
+    httpOnly: true, 
+    secure: true, 
+    sameSite: 'none' 
+  };
 
   res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
   res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
@@ -61,7 +65,7 @@ const register = async (req, res) => {
       walletBalance: 0,
       khataBalance: 0,
       isKhataAllowed: false,
-      otpResendsToday: 0, // Initialize spam tracker
+      otpResendsToday: 0, 
       lastOtpResendDate: new Date().toDateString()
     });
 
@@ -204,8 +208,13 @@ const refresh = async (req, res) => {
 
 const logout = async (req, res) => {
   const token = req.cookies.refreshToken;
-  const isProduction = process.env.NODE_ENV === 'production';
-  const clearCookieOptions = { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax' };
+  
+  // 🚨 THE FIX: Apply same secure cross-domain logic for clearing cookies
+  const clearCookieOptions = { 
+    httpOnly: true, 
+    secure: true, 
+    sameSite: 'none' 
+  };
 
   res.clearCookie('accessToken', clearCookieOptions);
   res.clearCookie('refreshToken', clearCookieOptions);
@@ -223,8 +232,14 @@ const logout = async (req, res) => {
 const logoutAllDevices = async (req, res) => {
   try {
     await Session.destroy({ where: { userId: req.user.id } });
-    const isProduction = process.env.NODE_ENV === 'production';
-    const clearCookieOptions = { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax' };
+    
+    // 🚨 THE FIX: Apply same secure cross-domain logic
+    const clearCookieOptions = { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'none' 
+    };
+    
     res.clearCookie('accessToken', clearCookieOptions);
     res.clearCookie('refreshToken', clearCookieOptions);
     res.status(200).json({ success: true, message: 'Logged out of all devices.' });
@@ -245,9 +260,6 @@ const getMe = async (req, res) => {
   }
 };
 
-// ============================================================
-// 8. RESEND OTP — 🚨 PRODUCTION FIX: Daily Rate Limiting
-// ============================================================
 const resendOtp = async (req, res) => {
   try {
     const { email } = req.body;
@@ -262,7 +274,6 @@ const resendOtp = async (req, res) => {
       return res.status(429).json({ success: false, message: 'Please wait 60 seconds before requesting another OTP.' });
     }
 
-    // 🚨 PRODUCTION FIX: Enforce max 5 OTPs per day
     const todayDateStr = new Date().toDateString();
     if (user.lastOtpResendDate !== todayDateStr) {
       user.otpResendsToday = 0;

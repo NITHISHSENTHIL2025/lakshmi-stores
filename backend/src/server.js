@@ -67,7 +67,7 @@ io.on('connection', (socket) => {
 });
 
 // ============================================================
-// HELMET — Properly configured CSP (not disabled)
+// HELMET — Properly configured CSP
 // ============================================================
 app.use(helmet({
   contentSecurityPolicy: {
@@ -99,6 +99,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
+// 🚨 MANDATORY CORS SETTINGS FOR MOBILE CROSS-DOMAIN COOKIES
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -107,12 +108,11 @@ app.use(cors({
 }));
 
 // ============================================================
-// 🚨 CRITICAL FIX: Webhook MUST be parsed as RAW buffer BEFORE express.json()
+// WEBHOOK MUST be parsed as RAW buffer BEFORE express.json()
 // ============================================================
 const paymentController = require('./controllers/paymentController');
 app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), paymentController.cashfreeWebhook);
 
-// Now apply JSON parsing for everything else
 app.use(express.json({ limit: '10kb' })); 
 app.use(cookieParser());
 
@@ -140,7 +140,6 @@ app.use('/api/users', userRoutes);
 
 app.use(errorHandler);
 
-// Catch-all: 404 for unknown API routes in dev, SPA fallback in prod
 app.get(/.*/, (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.resolve(__dirname, '../frontend/dist', 'index.html'));
@@ -150,7 +149,7 @@ app.get(/.*/, (req, res) => {
 });
 
 // ============================================================
-// CRON: Daily expired session cleanup
+// CRON JOBS
 // ============================================================
 cron.schedule('0 0 * * *', async () => {
   try {
@@ -163,9 +162,6 @@ cron.schedule('0 0 * * *', async () => {
   }
 });
 
-// ============================================================
-// CRON: Every 5 min — recover stock from abandoned online orders
-// ============================================================
 cron.schedule('*/5 * * * *', async () => {
   try {
     const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
@@ -217,9 +213,8 @@ const startServer = async () => {
   try {
     await connectDB();
 
-    // 🚨 FIX FOR THE 500 ERROR: Forcing alter:true safely so the database adds the missing idempotencyKey column
     await sequelize.sync({ alter: true });
-    console.log('✅ Database connected & synced (Safely updated missing columns)');
+    console.log('✅ Database connected & synced');
 
     await seedAdmin();
 

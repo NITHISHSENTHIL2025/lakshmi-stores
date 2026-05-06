@@ -2,12 +2,17 @@ const nodemailer = require('nodemailer');
 
 const sendEmail = async ({ email, subject, message }) => {
   try {
-    // 🚨 Swiggy-level reliability: Using Google's official, secure SMTP servers
+    // 🚨 THE RENDER PORT 587 FIX: Bypasses the ENETUNREACH Port 465 error
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // MUST be false when using port 587
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
+      },
+      tls: {
+        rejectUnauthorized: false // Helps prevent dropped connections on cloud hosts
       }
     });
 

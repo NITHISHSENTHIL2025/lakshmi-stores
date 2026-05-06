@@ -9,7 +9,6 @@ const sendEmail = require('../utils/sendEmail');
 const isStrongPassword = (password) =>
   /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,128}$/.test(password);
 
-// 🚨 THE FIX: Return tokens instead of setting cookies
 const generateTokens = async (user, req) => {
   const accessToken = jwt.sign({ id: user.id }, process.env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
@@ -62,12 +61,37 @@ const register = async (req, res) => {
       lastOtpResendDate: new Date().toDateString()
     });
 
+    // 🚨 MILLION-DOLLAR ENTERPRISE OTP EMAIL TEMPLATE
     const message = `
-      <div style="font-family:sans-serif;max-width:500px;margin:auto">
-        <h2 style="color:#ea580c">Welcome to Lakshmi Stores!</h2>
-        <p>Your verification code is:</p>
-        <div style="font-size:36px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;background:#fff7ed;border-radius:8px;margin:16px 0">${generatedOtp}</div>
-        <p style="color:#6b7280;font-size:13px">This code expires in 10 minutes. Do not share it with anyone.</p>
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <div style="background-color: #ea580c; padding: 24px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 900; text-transform: uppercase;">Lakshmi Stores</h1>
+          </div>
+          <div style="padding: 40px 32px;">
+            <h2 style="color: #111827; font-size: 24px; margin-top: 0; margin-bottom: 16px; font-weight: 800;">Verify your email address</h2>
+            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 32px;">
+              Hi <strong>${name.trim()}</strong>,<br><br>
+              Thank you for choosing Lakshmi Stores! Please use the following One-Time Password (OTP) to complete your registration. This code is valid for <strong>10 minutes</strong>.
+            </p>
+            <div style="background-color: #fff7ed; border: 2px dashed #fed7aa; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 32px;">
+              <span style="display: block; font-size: 42px; font-weight: 900; letter-spacing: 12px; color: #ea580c; margin-left: 12px;">${generatedOtp}</span>
+            </div>
+            <div style="background-color: #f3f4f6; border-left: 4px solid #ea580c; padding: 16px; border-radius: 4px;">
+              <p style="color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0;">
+                <strong style="color: #111827;">Security Tip:</strong> Never share this OTP with anyone. Lakshmi Stores personnel will never call or message you to ask for this code.
+              </p>
+            </div>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0 0 8px 0; line-height: 1.5;">
+              If you didn't request this email, please ignore it or secure your account.
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 0; font-weight: 600;">
+              &copy; ${new Date().getFullYear()} Lakshmi Stores. All rights reserved.
+            </p>
+          </div>
+        </div>
       </div>
     `;
 
@@ -120,7 +144,6 @@ const verifyOtp = async (req, res) => {
     user.lockUntil = null;
     await user.save();
 
-    // 🚨 Get tokens and send in JSON response
     const { accessToken, refreshToken } = await generateTokens(user, req);
 
     const userData = user.toJSON();
@@ -160,7 +183,6 @@ const login = async (req, res) => {
     user.lockUntil = null;
     await user.save();
 
-    // 🚨 Get tokens and send in JSON response
     const { accessToken, refreshToken } = await generateTokens(user, req);
 
     const userData = user.toJSON();
@@ -175,7 +197,6 @@ const login = async (req, res) => {
 
 const refresh = async (req, res) => {
   try {
-    // 🚨 Read refresh token from body
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(401).json({ success: false, message: 'No refresh token found.' });
 
@@ -196,7 +217,6 @@ const refresh = async (req, res) => {
 
     await session.destroy();
     
-    // 🚨 Get new tokens and send in JSON response
     const { accessToken, refreshToken: newRefreshToken } = await generateTokens(user, req);
     res.status(200).json({ success: true, message: 'Tokens refreshed.', accessToken, refreshToken: newRefreshToken });
   } catch (error) {
@@ -205,7 +225,6 @@ const refresh = async (req, res) => {
 };
 
 const logout = async (req, res) => {
-  // 🚨 Read refresh token from body
   const { refreshToken } = req.body;
 
   if (refreshToken) {
@@ -274,12 +293,36 @@ const resendOtp = async (req, res) => {
     user.otpResendsToday += 1;
     await user.save();
 
+    // 🚨 RESEND OTP ENTERPRISE TEMPLATE
     const message = `
-      <div style="font-family:sans-serif;max-width:500px;margin:auto">
-        <h2 style="color:#ea580c">New Verification Code</h2>
-        <p>Your new code is:</p>
-        <div style="font-size:36px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;background:#fff7ed;border-radius:8px;margin:16px 0">${generatedOtp}</div>
-        <p style="color:#6b7280;font-size:13px">This code expires in 10 minutes.</p>
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <div style="background-color: #ea580c; padding: 24px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 900; text-transform: uppercase;">Lakshmi Stores</h1>
+          </div>
+          <div style="padding: 40px 32px;">
+            <h2 style="color: #111827; font-size: 24px; margin-top: 0; margin-bottom: 16px; font-weight: 800;">Your New Verification Code</h2>
+            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 32px;">
+              As requested, here is your new One-Time Password (OTP). This code will expire securely in <strong>10 minutes</strong>.
+            </p>
+            <div style="background-color: #fff7ed; border: 2px dashed #fed7aa; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 32px;">
+              <span style="display: block; font-size: 42px; font-weight: 900; letter-spacing: 12px; color: #ea580c; margin-left: 12px;">${generatedOtp}</span>
+            </div>
+            <div style="background-color: #f3f4f6; border-left: 4px solid #ea580c; padding: 16px; border-radius: 4px;">
+              <p style="color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0;">
+                <strong style="color: #111827;">Security Tip:</strong> We will never call you to ask for this code. Do not share it with anyone.
+              </p>
+            </div>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0 0 8px 0; line-height: 1.5;">
+              If you didn't request this email, please ignore it or secure your account.
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 0; font-weight: 600;">
+              &copy; ${new Date().getFullYear()} Lakshmi Stores. All rights reserved.
+            </p>
+          </div>
+        </div>
       </div>
     `;
     await sendEmail({ email: user.email, subject: 'New Verification Code — Lakshmi Stores', message });
@@ -306,12 +349,39 @@ const forgotPassword = async (req, res) => {
     await user.save();
 
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
+    
+    // 🚨 PASSWORD RESET ENTERPRISE TEMPLATE (Includes Sleek Button)
     const message = `
-      <div style="font-family:sans-serif;max-width:500px;margin:auto">
-        <h2 style="color:#1f2937">Password Reset Request</h2>
-        <p>You requested a password reset. Click below to set a new password:</p>
-        <a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;margin:16px 0">Reset Password</a>
-        <p style="color:#6b7280;font-size:13px">This link expires in 15 minutes. If you didn't request this, ignore this email.</p>
+      <div style="background-color: #f9fafb; padding: 40px 20px; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <div style="background-color: #111827; padding: 24px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 900; text-transform: uppercase;">Lakshmi Stores</h1>
+          </div>
+          <div style="padding: 40px 32px;">
+            <h2 style="color: #111827; font-size: 24px; margin-top: 0; margin-bottom: 16px; font-weight: 800;">Reset Your Password</h2>
+            <p style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 32px;">
+              We received a request to reset the password for your Lakshmi Stores account. Click the button below to choose a new password. This secure link will expire in <strong>15 minutes</strong>.
+            </p>
+            <div style="text-align: center; margin-bottom: 32px;">
+              <a href="${resetUrl}" style="display: inline-block; background-color: #ea580c; color: #ffffff; font-weight: 800; font-size: 16px; text-decoration: none; padding: 16px 36px; border-radius: 8px; text-transform: uppercase; letter-spacing: 1px;">Reset Password</a>
+            </div>
+            <div style="background-color: #f3f4f6; border-left: 4px solid #111827; padding: 16px; border-radius: 4px;">
+              <p style="color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0;">
+                <strong style="color: #111827;">Having trouble clicking the button?</strong><br>
+                Copy and paste this URL into your browser: <br/>
+                <a href="${resetUrl}" style="color: #ea580c; word-break: break-all; margin-top: 6px; display: inline-block;">${resetUrl}</a>
+              </p>
+            </div>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0 0 8px 0; line-height: 1.5;">
+              If you didn't request a password reset, you can safely ignore this email. Your password will not change until you access the link above and create a new one.
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 0; font-weight: 600;">
+              &copy; ${new Date().getFullYear()} Lakshmi Stores. All rights reserved.
+            </p>
+          </div>
+        </div>
       </div>
     `;
 

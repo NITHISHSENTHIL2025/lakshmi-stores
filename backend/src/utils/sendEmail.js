@@ -1,18 +1,20 @@
 const nodemailer = require('nodemailer');
+const dns = require('dns');
+
+// 🚨 THE ULTIMATE RENDER CLOUD FIX
+// Forces Node.js to use IPv4. This bypasses the Render Free Tier IPv6 block
+// and prevents the ETIMEDOUT and ENETUNREACH Gmail crashes.
+dns.setDefaultResultOrder('ipv4first');
 
 const sendEmail = async ({ email, subject, message }) => {
   try {
-    // 🚨 THE RENDER PORT 587 FIX: Bypasses the ENETUNREACH Port 465 error
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // MUST be false when using port 587
+      port: 465,
+      secure: true, // Port 465 requires secure: true
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-      },
-      tls: {
-        rejectUnauthorized: false // Helps prevent dropped connections on cloud hosts
       }
     });
 

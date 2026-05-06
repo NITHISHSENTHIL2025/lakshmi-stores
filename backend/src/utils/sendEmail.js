@@ -1,23 +1,21 @@
 const nodemailer = require('nodemailer');
-const dns = require('dns');
-
-// 🚨 THE ULTIMATE RENDER CLOUD FIX
-// We MUST force Node.js to use IPv4. Render completely blocks outbound IPv6.
-dns.setDefaultResultOrder('ipv4first');
 
 const sendEmail = async ({ email, subject, message }) => {
   try {
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,            // Use secure cloud port
-      secure: false,        // Must be false for 587
-      requireTLS: true,     // Force encryption
+      // 🚨 CRITICAL: Hardcoded Google IPv4. 
+      // Do NOT change this back to 'smtp.gmail.com'. Render blocks IPv6.
+      host: '142.250.115.108', 
+      port: 587,
+      secure: false, 
+      requireTLS: true,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
       },
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        servername: 'smtp.gmail.com' // Prevents TLS certificate mismatch errors
       }
     });
 

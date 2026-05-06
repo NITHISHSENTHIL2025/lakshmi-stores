@@ -210,20 +210,19 @@ const AdminProductManager = () => {
       </div>
 
       {isModalOpen && (
-        /* 🚨 FIX 1: fixed inset-0 with padding forces a safe zone on all edges */
-        <div className="fixed inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8">
+        <div className="fixed inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           
-          {/* 🚨 FIX 2: max-h-full forces the white box to never exceed the safe zone */}
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-full overflow-hidden animate-slideInRight border border-gray-100">
+          {/* THE NUKE OPTION: Fixed height and absolute positioning for internal scroll */}
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl border border-gray-100 relative" style={{ height: '80vh' }}>
             
-            {/* Header - shrink-0 keeps it visible */}
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0">
+            {/* Pinned Header */}
+            <div className="absolute top-0 left-0 w-full p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/95 backdrop-blur-md rounded-t-[2rem] z-10">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight">{formData.id ? 'Edit Product' : 'Add New Real Product'}</h2>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 text-2xl font-black transition cursor-pointer">✕</button>
             </div>
 
-            {/* Body - flex-1 and overflow-y-auto makes only this section scroll */}
-            <div className="p-6 space-y-6 overflow-y-auto flex-1">
+            {/* Scrolling Body - Pushed down by top padding, pushed up by bottom padding */}
+            <div className="absolute top-0 left-0 w-full h-full overflow-y-auto pt-24 pb-28 px-6 md:px-8 space-y-6">
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -292,8 +291,8 @@ const AdminProductManager = () => {
 
             </div>
 
-            {/* Footer - shrink-0 keeps it visible */}
-            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
+            {/* Pinned Footer */}
+            <div className="absolute bottom-0 left-0 w-full p-6 border-t border-gray-100 bg-gray-50/95 backdrop-blur-md flex justify-end gap-3 rounded-b-[2rem] z-10">
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition cursor-pointer">Cancel</button>
               <button onClick={saveProduct} disabled={isSaving} className="px-8 py-3 bg-orange-600 text-white font-black rounded-xl shadow-lg hover:bg-orange-700 transition disabled:opacity-50 flex items-center gap-2 cursor-pointer">
                 {isSaving ? 'Saving...' : 'Save Product Data'}

@@ -217,10 +217,17 @@ const ProductGrid = () => {
                     </div>
 
                     {isOutOfStock ? (
-                      notifiedItems.includes(product.id) ? 
-                        <span className="text-xs font-black text-green-600">Will Notify!</span> :
-                        // 🚨 FIX IN ACTION: We now pass the whole product to handleNotifyMe!
-                        <button onClick={() => handleNotifyMe(product)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 border border-blue-200 cursor-pointer transition-colors">🔔 Notify</button>
+                      // 🚨 THE FIX: If there is an ETA, lock the button and show the timeline!
+                      product.restockEta ? (
+                         <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-1.5 rounded-xl text-center shadow-sm w-full md:w-auto">
+                            <span className="text-[9px] font-black uppercase tracking-widest block mb-0.5">Expected Restock</span>
+                            <span className="font-bold text-sm">{product.restockEta}</span>
+                         </div>
+                      ) : notifiedItems.includes(product.id) ? (
+                         <span className="text-xs font-black text-green-600 bg-green-50 px-4 py-2 rounded-xl border border-green-200">Will Notify!</span>
+                      ) : (
+                         <button onClick={() => handleNotifyMe(product)} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 border border-blue-200 cursor-pointer transition-colors shadow-sm">🔔 Notify</button>
+                      )
                     ) : !cartItem ? (
                       <button onClick={() => handleAddClick(product, appStock)} className="px-5 py-2.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white rounded-xl font-black text-xs md:text-sm transition-all shadow-sm cursor-pointer transform active:scale-95 hover:shadow-md hover:-translate-y-0.5">ADD</button>
                     ) : (

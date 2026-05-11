@@ -1,28 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { Bell } from 'lucide-react'; 
-import api from '../api/axios'; // 🚨 FIX: Using your custom API instance for Authentication!
+import api from '../api/axios'; 
+import { useStore } from '../context/StoreContext'; // 🚨 Import the live socket
 
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
+  const { socket } = useStore(); // 🚨 Hook into the live socket
 
   useEffect(() => {
     const fetchNotifs = async () => {
       try {
-        // 🚨 FIX: api.get automatically adds your token and base URL
         const { data } = await api.get('/notifications/mine');
         if (data && data.data) {
            setNotifications(data.data);
         }
-      } catch (err) { 
-        console.error("Could not fetch notifications", err); 
-      }
+      } catch (err) { console.error("Could not fetch notifications", err); }
     };
     
     if (localStorage.getItem('token')) {
       fetchNotifs();
     }
-  }, []);
+
+    // 🚨 MAGIC: When admin sends an alert, fetch immediately without refreshing!
+    if (socket) {
+       socket.on('storeUpdated', fetchNotifs);
+    }
+    return () => {
+       if (socket) socket.off('storeUpdated', fetchNotifs);
+    }
+  }, [socket]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 

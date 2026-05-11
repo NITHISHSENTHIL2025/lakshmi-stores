@@ -12,6 +12,7 @@ const Product = sequelize.define('Product', {
   price: { type: DataTypes.DECIMAL(10, 2), allowNull: false, validate: { min: 0.01 } },
   
   real_stock: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, validate: { min: 0 } },
+  restockEta: { type: DataTypes.STRING, allowNull: true },
   buffer: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 2 },
   imageUrl: { type: DataTypes.STRING },
   

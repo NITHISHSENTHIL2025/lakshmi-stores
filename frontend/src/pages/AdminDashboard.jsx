@@ -5,7 +5,6 @@ import AdminProductManager from '../components/AdminProductManager';
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
 
-// 🚨 FIX 1: INITIALIZE SOCKET OUTSIDE THE COMPONENT!
 const socketUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 const socket = io(socketUrl, {
   withCredentials: true,
@@ -20,7 +19,6 @@ const AdminDashboard = () => {
   const [activeView, setActiveView] = useState('live'); 
   
   const [audioEnabled, setAudioEnabled] = useState(() => localStorage.getItem('storeAudio') === 'true');
-  // 🚨 FIX 2: Use a Ref for Audio so it doesn't trigger re-renders in our useEffect
   const audioRef = useRef(audioEnabled);
   
   const [posSearchTerm, setPosSearchTerm] = useState('');
@@ -30,11 +28,9 @@ const AdminDashboard = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [handoverModal, setHandoverModal] = useState({ isOpen: false, order: null, step: 'pin', pinInput: '', cashInput: '', change: 0, error: '' });
   
-  // --- NEW: NOTIFICATION MODAL STATE ---
   const [notifyModal, setNotifyModal] = useState(null);
   const [eta, setEta] = useState('Tomorrow');
   const [notifyLoading, setNotifyLoading] = useState(false);
-  // -------------------------------------
 
   const prevOrderCount = useRef(0);
   const navigate = useNavigate();
@@ -62,7 +58,6 @@ const AdminDashboard = () => {
     } catch (e) { }
   };
 
-  // 🚨 FIX 3: Master UseEffect with an EMPTY dependency array []
   useEffect(() => {
     fetchOrders(); fetchProducts(); fetchStoreStatus(); fetchRequests();
 
@@ -110,26 +105,24 @@ const AdminDashboard = () => {
 
   const clearRequest = async (id) => { try { await api.delete(`/store/requests/${id}`); fetchRequests(); } catch (e) { } };
 
-  // --- NEW: HANDLE NOTIFY CUSTOMER ---
   const handleNotifySubmit = async () => {
     setNotifyLoading(true);
     try {
       await api.post('/notifications/send-eta', {
         requestId: notifyModal.id,
-        userId: notifyModal.userId, // Matches your backend logic
+        userId: notifyModal.userId, 
         itemName: notifyModal.itemName,
         eta: eta
       });
-      setNotifyModal(null); // Close modal
+      setNotifyModal(null); 
       alert('✅ In-App Notification sent to customer instantly!');
-      fetchRequests(); // Refresh list just in case
+      fetchRequests(); 
     } catch (error) {
       alert('Failed to send notification. Check console.');
       console.error(error);
     }
     setNotifyLoading(false);
   };
-  // -----------------------------------
 
   const fetchOrders = async (isBackgroundSync = false) => {
     try {
@@ -294,7 +287,6 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
-      {/* ----------------------------------- */}
 
       {/* VERIFICATION MODAL */}
       {handoverModal.isOpen && (
@@ -402,8 +394,35 @@ const AdminDashboard = () => {
                 <span className="text-3xl font-black text-gray-900">₹{selectedOrder.orderAmount}</span>
               </div>
             </div>
-            <div className="p-6 bg-gray-50 border-t border-gray-100">
-              <button onClick={() => setSelectedOrder(null)} className="w-full py-3 bg-gray-900 text-white font-black rounded-xl hover:bg-black transition-colors">Close Details</button>
+            
+            {/* 🚨 PRODUCTION FIX: Added Cancel & Restock Button */}
+            <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
+              {['paid', 'pending_cash', 'packed', 'ready'].includes(selectedOrder.orderStatus.toLowerCase()) && (
+                <button 
+                  onClick={async () => {
+                    if(window.confirm(`Are you sure you want to cancel Order #${selectedOrder.orderToken}? The items will be restocked.`)) {
+                      try {
+                        await api.put(`/orders/${selectedOrder.id}/cancel`);
+                        alert('✅ Order Cancelled & Stock Restored!');
+                        setSelectedOrder(null);
+                        fetchOrders(true);
+                        fetchProducts();
+                      } catch(e) {
+                        alert('Failed to cancel order.');
+                      }
+                    }
+                  }} 
+                  className="flex-1 py-3 bg-red-100 text-red-600 font-black rounded-xl hover:bg-red-200 transition-colors shadow-sm cursor-pointer"
+                >
+                  Cancel & Restock
+                </button>
+              )}
+              <button 
+                onClick={() => setSelectedOrder(null)} 
+                className="flex-1 py-3 bg-gray-900 text-white font-black rounded-xl hover:bg-black transition-colors shadow-sm cursor-pointer"
+              >
+                Close Details
+              </button>
             </div>
           </div>
         </div>
@@ -526,8 +545,6 @@ const AdminDashboard = () => {
                       <td className="p-6 pl-8 font-black text-gray-900 text-xl">{req.itemName}</td>
                       <td className="p-6 font-bold text-orange-600">{req.requestCount} Customers</td>
                       <td className="p-6 font-bold text-gray-500">{new Date(req.updatedAt).toLocaleDateString()}</td>
-                      
-                      {/* --- ADDED THE NOTIFY BUTTON HERE --- */}
                       <td className="p-6 pr-8 text-right flex justify-end gap-3 items-center">
                         <button 
                           onClick={() => setNotifyModal(req)} 
@@ -542,7 +559,6 @@ const AdminDashboard = () => {
                           Clear
                         </button>
                       </td>
-                      {/* ---------------------------------- */}
                     </tr>
                   ))}
                   {customerRequests.length === 0 && (<tr><td colSpan="4" className="p-20 text-center text-gray-400 font-bold text-xl">No missing item requests!</td></tr>)}

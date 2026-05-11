@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const OrderItem = require('../models/OrderItem');
+const Notification = require('../models/Notification'); // 🚨 Added Notification Model
 const { Op } = require('sequelize');
 
 const dbExport = require('../config/db');
@@ -80,14 +81,12 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
-    // 🚨 PRODUCTION FIX: Include OrderItems so we can restore stock if cancelled
     const order = await Order.findByPk(id, {
       include: [{ model: OrderItem, as: 'items' }]
     });
     
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
 
-    // 🚨 PRODUCTION FIX: Safely restore stock if admin moves order to Cancelled/Failed
     if (['cancelled', 'failed'].includes(orderStatus) && !['cancelled', 'failed'].includes(order.orderStatus)) {
       const t = await sequelize.transaction();
       try {
@@ -118,5 +117,68 @@ exports.updateOrderStatus = async (req, res) => {
   } catch (error) {
     console.error('❌ updateOrderStatus error:', error);
     res.status(500).json({ success: false, message: 'Server error updating order status.' });
+  }
+};
+
+// ============================================================
+// ADMIN ACTION: Cancel Order, Restore Stock, Send Notification
+// ============================================================
+exports.cancelOrderAdmin = async (req, res) => {
+  const t = await sequelize.transaction(); 
+  
+  try {
+    const orderId = req.params.id;
+    const order = await Order.findByPk(orderId, { include: ['items'], transaction: t });
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Prevent double-cancellation
+    if (['cancelled', 'completed', 'failed'].includes(order.orderStatus)) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: `Order is already ${order.orderStatus}` });
+    }
+
+    // 1. Loop through the order and restore the real_stock
+    if (order.items && order.items.length > 0) {
+      for (let item of order.items) {
+        await Product.increment('real_stock', {
+          by: item.quantity,
+          where: { id: item.productId },
+          transaction: t
+        });
+      }
+    }
+
+    // 2. Update Order Status
+    order.orderStatus = 'cancelled';
+    await order.save({ transaction: t });
+
+    // 3. Send the Customer a Notification
+    let displayToken = order.orderToken && order.orderToken !== 'WAIT' 
+      ? order.orderToken 
+      : (order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : 'Unknown');
+
+    await Notification.create({
+      userId: order.userId ? String(order.userId) : 'GLOBAL',
+      title: 'Order Cancelled ❌',
+      message: `Your COD order #${displayToken} was cancelled as it wasn't picked up. Items have been restocked.`,
+      isRead: false
+    }, { transaction: t });
+
+    // Commit all changes safely
+    await t.commit();
+    
+    // Tell the live dashboard to refresh
+    const io = req.app.get('io');
+    if (io) io.emit('storeUpdated');
+
+    res.status(200).json({ success: true, message: 'Order cancelled and stock restored.' });
+  } catch (error) {
+    await t.rollback();
+    console.error('Cancel Order Error:', error);
+    res.status(500).json({ success: false, message: 'Server error during cancellation.' });
   }
 };

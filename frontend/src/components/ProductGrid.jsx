@@ -63,7 +63,6 @@ const ProductGrid = () => {
   };
 
   const handleAddClick = (product, appStock) => {
-    // 🚨 PRODUCTION FIX: Use Boolean Flag
     if (product.isSoldByWeight) setWeightModalProduct({ ...product, appStock });
     else addToCart(product, 1, appStock); 
   };
@@ -90,9 +89,18 @@ const ProductGrid = () => {
     } catch (e) { }
   };
 
-  const handleNotifyMe = (productId) => {
-    setNotifiedItems([...notifiedItems, productId]);
-    alert("You will be notified the moment this item arrives!");
+  // 🚨 THE FIX: Actually send the "Notify" request to the database!
+  const handleNotifyMe = async (product) => {
+    try {
+      // Send the request to your admin dashboard
+      await api.post('/store/requests', { itemName: product.name });
+      
+      // Update UI so the user sees "Will Notify!"
+      setNotifiedItems([...notifiedItems, product.id]);
+    } catch (error) {
+      console.error("Failed to request notification", error);
+      alert("Failed to setup notification. Please try again.");
+    }
   };
 
   const categories = ['All', 'Combos', ...new Set(products.map(p => p.category).filter(Boolean))];
@@ -190,7 +198,6 @@ const ProductGrid = () => {
             const appStock = getAppStock(product); 
             const isOutOfStock = appStock === 0;
             
-            // 🚨 PRODUCTION FIX: Use Boolean Flag
             const stepAmount = product.isSoldByWeight ? 0.25 : 1;
 
             return (
@@ -212,7 +219,8 @@ const ProductGrid = () => {
                     {isOutOfStock ? (
                       notifiedItems.includes(product.id) ? 
                         <span className="text-xs font-black text-green-600">Will Notify!</span> :
-                        <button onClick={() => handleNotifyMe(product.id)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 border border-blue-200 cursor-pointer transition-colors">🔔 Notify</button>
+                        // 🚨 FIX IN ACTION: We now pass the whole product to handleNotifyMe!
+                        <button onClick={() => handleNotifyMe(product)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 border border-blue-200 cursor-pointer transition-colors">🔔 Notify</button>
                     ) : !cartItem ? (
                       <button onClick={() => handleAddClick(product, appStock)} className="px-5 py-2.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white rounded-xl font-black text-xs md:text-sm transition-all shadow-sm cursor-pointer transform active:scale-95 hover:shadow-md hover:-translate-y-0.5">ADD</button>
                     ) : (

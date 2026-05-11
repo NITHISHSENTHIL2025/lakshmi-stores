@@ -137,6 +137,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/store', storeRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/notifications', require('./src/routes/notificationRoutes'));
 
 app.use(errorHandler);
 

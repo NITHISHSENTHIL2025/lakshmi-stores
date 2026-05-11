@@ -30,6 +30,12 @@ const AdminDashboard = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [handoverModal, setHandoverModal] = useState({ isOpen: false, order: null, step: 'pin', pinInput: '', cashInput: '', change: 0, error: '' });
   
+  // --- NEW: NOTIFICATION MODAL STATE ---
+  const [notifyModal, setNotifyModal] = useState(null);
+  const [eta, setEta] = useState('Tomorrow');
+  const [notifyLoading, setNotifyLoading] = useState(false);
+  // -------------------------------------
+
   const prevOrderCount = useRef(0);
   const navigate = useNavigate();
 
@@ -104,6 +110,27 @@ const AdminDashboard = () => {
 
   const clearRequest = async (id) => { try { await api.delete(`/store/requests/${id}`); fetchRequests(); } catch (e) { } };
 
+  // --- NEW: HANDLE NOTIFY CUSTOMER ---
+  const handleNotifySubmit = async () => {
+    setNotifyLoading(true);
+    try {
+      await api.post('/notifications/send-eta', {
+        requestId: notifyModal.id,
+        userId: notifyModal.userId, // Matches your backend logic
+        itemName: notifyModal.itemName,
+        eta: eta
+      });
+      setNotifyModal(null); // Close modal
+      alert('✅ In-App Notification sent to customer instantly!');
+      fetchRequests(); // Refresh list just in case
+    } catch (error) {
+      alert('Failed to send notification. Check console.');
+      console.error(error);
+    }
+    setNotifyLoading(false);
+  };
+  // -----------------------------------
+
   const fetchOrders = async (isBackgroundSync = false) => {
     try {
       const response = await api.get('/orders');
@@ -122,7 +149,6 @@ const AdminDashboard = () => {
 
   const updateOrderStatus = async (id, newStatus) => {
     try {
-      // 🚨 PRODUCTION P0 FIX: Backend expects `orderStatus`, NOT `status`
       await api.put(`/orders/${id}/status`, { orderStatus: newStatus.toLowerCase() });
       
       if (['completed', 'cancelled'].includes(newStatus.toLowerCase())) { prevOrderCount.current -= 1; }
@@ -139,7 +165,6 @@ const AdminDashboard = () => {
     setHandoverModal(prev => ({ ...prev, error: '' })); 
     
     if (step === 'pin') {
-      // 🚨 PRODUCTION P0 FIX: Verify against the secure pickupPin, not the OrderID suffix!
       const expectedPin = String(order.pickupPin); 
       
       if (String(pinInput) === expectedPin) {
@@ -230,6 +255,46 @@ const AdminDashboard = () => {
           <button onClick={toggleShutter} className="px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-xl text-lg shadow-lg shadow-green-500/30 transition-transform transform active:scale-95 cursor-pointer">Open Shutter Now</button>
         </div>
       )}
+
+      {/* --- NOTIFICATION ETA MODAL --- */}
+      {notifyModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[400] backdrop-blur-sm transition-opacity duration-300">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl anim-slide-up border border-gray-100">
+            <h2 className="text-2xl font-black mb-1 text-gray-900">Notify Customer</h2>
+            <p className="text-sm text-gray-500 mb-5 font-medium">
+              When will <span className="font-bold text-orange-600">{notifyModal.itemName}</span> be back in stock?
+            </p>
+
+            <select 
+              value={eta} 
+              onChange={(e) => setEta(e.target.value)}
+              className="w-full p-4 border border-gray-200 rounded-xl mb-6 focus:ring-2 focus:ring-[#ea580c] outline-none font-bold text-gray-700 bg-gray-50 hover:bg-white transition-colors"
+            >
+              <option value="in less than 24 hours">Less than 24 hours</option>
+              <option value="Tomorrow">Tomorrow</option>
+              <option value="in 2 Days">2 Days</option>
+              <option value="Next Week">Next Week</option>
+            </select>
+
+            <div className="flex gap-3 justify-end">
+              <button 
+                onClick={() => setNotifyModal(null)} 
+                className="px-5 py-3 text-gray-600 hover:bg-gray-100 rounded-xl font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleNotifySubmit} 
+                disabled={notifyLoading} 
+                className="px-6 py-3 bg-[#ea580c] hover:bg-orange-700 text-white rounded-xl font-black transition-transform transform active:scale-95 flex items-center justify-center min-w-[140px] cursor-pointer shadow-lg shadow-orange-500/30"
+              >
+                {notifyLoading ? 'Sending...' : 'Send Alert 🔔'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ----------------------------------- */}
 
       {/* VERIFICATION MODAL */}
       {handoverModal.isOpen && (
@@ -457,7 +522,28 @@ const AdminDashboard = () => {
                 <thead><tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="p-6 pl-8">Missing Item Name</th><th className="p-6">Requested By</th><th className="p-6">Last Searched</th><th className="p-6 pr-8 text-right">Action</th></tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {customerRequests.map((req) => (
-                    <tr key={req.id} className="hover:bg-gray-50/50 transition-colors"><td className="p-6 pl-8 font-black text-gray-900 text-xl">{req.itemName}</td><td className="p-6 font-bold text-orange-600">{req.requestCount} Customers</td><td className="p-6 font-bold text-gray-500">{new Date(req.updatedAt).toLocaleDateString()}</td><td className="p-6 pr-8 text-right"><button onClick={() => clearRequest(req.id)} className="px-5 py-2.5 bg-white border border-gray-200 text-red-500 text-sm font-black rounded-xl shadow-sm hover:bg-red-50 cursor-pointer">Clear Request</button></td></tr>
+                    <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="p-6 pl-8 font-black text-gray-900 text-xl">{req.itemName}</td>
+                      <td className="p-6 font-bold text-orange-600">{req.requestCount} Customers</td>
+                      <td className="p-6 font-bold text-gray-500">{new Date(req.updatedAt).toLocaleDateString()}</td>
+                      
+                      {/* --- ADDED THE NOTIFY BUTTON HERE --- */}
+                      <td className="p-6 pr-8 text-right flex justify-end gap-3 items-center">
+                        <button 
+                          onClick={() => setNotifyModal(req)} 
+                          className="px-5 py-2.5 bg-[#ea580c] hover:bg-orange-700 text-white text-sm font-black rounded-xl shadow-md transition-transform transform active:scale-95 cursor-pointer"
+                        >
+                          Notify
+                        </button>
+                        <button 
+                          onClick={() => clearRequest(req.id)} 
+                          className="px-5 py-2.5 bg-white border border-gray-200 text-red-500 text-sm font-black rounded-xl shadow-sm hover:bg-red-50 cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </td>
+                      {/* ---------------------------------- */}
+                    </tr>
                   ))}
                   {customerRequests.length === 0 && (<tr><td colSpan="4" className="p-20 text-center text-gray-400 font-bold text-xl">No missing item requests!</td></tr>)}
                 </tbody>

@@ -34,6 +34,7 @@ const AdminProductManager = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
+
   useEffect(() => {
     fetchProducts();
   }, []);
@@ -52,7 +53,6 @@ const AdminProductManager = () => {
   const handleCategoryChange = (e) => {
     const selected = e.target.value;
     const catData = PREDEFINED_CATEGORIES.find(c => c.name === selected);
-    
     setFormData({
       ...formData,
       categorySelection: selected,

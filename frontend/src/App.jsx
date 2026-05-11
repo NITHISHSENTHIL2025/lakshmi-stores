@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import NotificationBell from './components/NotificationBell';
 
 // API & Contexts
 import { StoreProvider, useStore } from './context/StoreContext';
@@ -66,6 +67,9 @@ const TopNav = () => {
           ) : (
             <Link to="/login" className="hidden md:block bg-orange-50 text-orange-600 px-5 py-2 rounded-xl font-bold hover:bg-orange-100 transition-all cursor-pointer">Login / Register</Link>
           )}
+
+          {/* 🚨 THE NOTIFICATION BELL ADDED HERE 🚨 */}
+          {user?.role === 'customer' && <NotificationBell />}
 
           <button onClick={() => setIsCartOpen(true)} className="relative p-2 text-gray-900 hover:text-orange-600 transition cursor-pointer bg-gray-50 rounded-full h-12 w-12 flex items-center justify-center transform hover:scale-105">
             <span className="text-xl">🛍️</span>

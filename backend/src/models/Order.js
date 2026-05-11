@@ -65,7 +65,8 @@ const Order = sequelize.define('Order', {
   },
   customerPhone: {
     type: DataTypes.STRING
-  }
+  },
+  cancelReason: { type: DataTypes.STRING, allowNull: true }
 }, {
   timestamps: true,
   indexes: [

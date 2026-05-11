@@ -1,7 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const OrderItem = require('../models/OrderItem');
-const Notification = require('../models/Notification'); // 🚨 Added Notification Model
+const Notification = require('../models/Notification'); 
 const { Op } = require('sequelize');
 
 const dbExport = require('../config/db');
@@ -128,6 +128,13 @@ exports.cancelOrderAdmin = async (req, res) => {
   
   try {
     const orderId = req.params.id;
+    const { cancelReason } = req.body; // 🚨 Catch the reason
+
+    if (!cancelReason) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'Cancellation reason is required.' });
+    }
+
     const order = await Order.findByPk(orderId, { include: ['items'], transaction: t });
 
     if (!order) {
@@ -135,13 +142,11 @@ exports.cancelOrderAdmin = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Prevent double-cancellation
     if (['cancelled', 'completed', 'failed'].includes(order.orderStatus)) {
       await t.rollback();
       return res.status(400).json({ success: false, message: `Order is already ${order.orderStatus}` });
     }
 
-    // 1. Loop through the order and restore the real_stock
     if (order.items && order.items.length > 0) {
       for (let item of order.items) {
         await Product.increment('real_stock', {
@@ -152,11 +157,10 @@ exports.cancelOrderAdmin = async (req, res) => {
       }
     }
 
-    // 2. Update Order Status
     order.orderStatus = 'cancelled';
+    order.cancelReason = cancelReason; // 🚨 Save the reason
     await order.save({ transaction: t });
 
-    // 3. Send the Customer a Notification
     let displayToken = order.orderToken && order.orderToken !== 'WAIT' 
       ? order.orderToken 
       : (order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : 'Unknown');
@@ -164,14 +168,12 @@ exports.cancelOrderAdmin = async (req, res) => {
     await Notification.create({
       userId: order.userId ? String(order.userId) : 'GLOBAL',
       title: 'Order Cancelled ❌',
-      message: `Your COD order #${displayToken} was cancelled as it wasn't picked up. Items have been restocked.`,
+      message: `Your order #${displayToken} was cancelled. Reason: ${cancelReason}`,
       isRead: false
     }, { transaction: t });
 
-    // Commit all changes safely
     await t.commit();
     
-    // Tell the live dashboard to refresh
     const io = req.app.get('io');
     if (io) io.emit('storeUpdated');
 

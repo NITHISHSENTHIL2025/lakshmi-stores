@@ -4,6 +4,7 @@ import api from '../api/axios';
 import AdminProductManager from '../components/AdminProductManager';
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
+import toast from 'react-hot-toast'; // 🚨 Imported toast
 
 const socketUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 const socket = io(socketUrl, {
@@ -31,6 +32,9 @@ const AdminDashboard = () => {
   const [notifyModal, setNotifyModal] = useState(null);
   const [eta, setEta] = useState('Tomorrow');
   const [notifyLoading, setNotifyLoading] = useState(false);
+
+  // 🚨 New Cancel Modal State
+  const [cancelModal, setCancelModal] = useState({ isOpen: false, order: null, reason: 'Customer did not pick up' });
 
   const prevOrderCount = useRef(0);
   const navigate = useNavigate();
@@ -115,11 +119,10 @@ const AdminDashboard = () => {
         eta: eta
       });
       setNotifyModal(null); 
-      alert('✅ In-App Notification sent to customer instantly!');
+      toast.success('In-App Notification sent!');
       fetchRequests(); 
     } catch (error) {
-      alert('Failed to send notification. Check console.');
-      console.error(error);
+      toast.error('Failed to send notification.');
     }
     setNotifyLoading(false);
   };
@@ -288,6 +291,55 @@ const AdminDashboard = () => {
         </div>
       )}
 
+      {/* 🚨 THE NEW CANCEL REASON MODAL */}
+      {cancelModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[400] backdrop-blur-sm transition-opacity duration-300">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl anim-slide-up border border-red-100">
+            <h2 className="text-2xl font-black mb-1 text-red-600">Cancel Order</h2>
+            <p className="text-sm text-gray-500 mb-5 font-medium">
+              Why are you cancelling Order #{cancelModal.order.orderToken}? This will be sent to the customer.
+            </p>
+
+            <select 
+              value={cancelModal.reason} 
+              onChange={(e) => setCancelModal({ ...cancelModal, reason: e.target.value })}
+              className="w-full p-4 border border-gray-200 rounded-xl mb-6 focus:ring-2 focus:ring-red-500 outline-none font-bold text-gray-700 bg-gray-50"
+            >
+              <option value="Customer did not pick up">Customer did not pick up</option>
+              <option value="Items requested are Out of Stock">Items are Out of Stock</option>
+              <option value="Store is closing for the day">Store is closing</option>
+              <option value="Suspected fake order">Suspected fake order</option>
+            </select>
+
+            <div className="flex gap-3 justify-end">
+              <button 
+                onClick={() => setCancelModal({ isOpen: false, order: null, reason: '' })} 
+                className="px-5 py-3 text-gray-600 hover:bg-gray-100 rounded-xl font-bold cursor-pointer"
+              >
+                Go Back
+              </button>
+              <button 
+                onClick={async () => {
+                  const loadingToast = toast.loading('Cancelling order...');
+                  try {
+                    await api.put(`/orders/${cancelModal.order.id}/cancel`, { cancelReason: cancelModal.reason });
+                    toast.success('Order Cancelled & Restocked!', { id: loadingToast });
+                    setCancelModal({ isOpen: false, order: null, reason: '' });
+                    fetchOrders(true);
+                    fetchProducts();
+                  } catch(e) {
+                    toast.error('Failed to cancel order.', { id: loadingToast });
+                  }
+                }} 
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black cursor-pointer shadow-lg shadow-red-500/30"
+              >
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* VERIFICATION MODAL */}
       {handoverModal.isOpen && (
         <div className="fixed inset-0 z-[200] bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-300">
@@ -395,26 +447,17 @@ const AdminDashboard = () => {
               </div>
             </div>
             
-            {/* 🚨 PRODUCTION FIX: Added Cancel & Restock Button */}
+            {/* 🚨 Cancel Order Action */}
             <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
               {['paid', 'pending_cash', 'packed', 'ready'].includes(selectedOrder.orderStatus.toLowerCase()) && (
                 <button 
-                  onClick={async () => {
-                    if(window.confirm(`Are you sure you want to cancel Order #${selectedOrder.orderToken}? The items will be restocked.`)) {
-                      try {
-                        await api.put(`/orders/${selectedOrder.id}/cancel`);
-                        alert('✅ Order Cancelled & Stock Restored!');
-                        setSelectedOrder(null);
-                        fetchOrders(true);
-                        fetchProducts();
-                      } catch(e) {
-                        alert('Failed to cancel order.');
-                      }
-                    }
+                  onClick={() => {
+                    setCancelModal({ isOpen: true, order: selectedOrder, reason: 'Customer did not pick up' });
+                    setSelectedOrder(null);
                   }} 
                   className="flex-1 py-3 bg-red-100 text-red-600 font-black rounded-xl hover:bg-red-200 transition-colors shadow-sm cursor-pointer"
                 >
-                  Cancel & Restock
+                  Cancel Order
                 </button>
               )}
               <button 

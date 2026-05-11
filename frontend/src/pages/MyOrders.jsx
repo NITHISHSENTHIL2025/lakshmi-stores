@@ -17,7 +17,20 @@ const MyOrders = () => {
     try {
       const response = await api.get('/orders/my-orders');
       
-      const active = response.data.data.filter(o => ['paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
+      // 🚨 FIX: Filter logic now keeps cancelled orders for 6 hours
+      const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+      
+      const active = response.data.data.filter(o => {
+        const status = o.orderStatus.toLowerCase();
+        if (['paid', 'pending_cash', 'packed', 'ready'].includes(status)) return true;
+        
+        if (status === 'cancelled') {
+           const cancelTime = new Date(o.updatedAt);
+           if (cancelTime > sixHoursAgo) return true;
+        }
+        return false;
+      });
+      
       setActiveOrders(active);
     } catch (error) { 
       console.error("Failed to fetch orders"); 
@@ -33,6 +46,9 @@ const MyOrders = () => {
     if (s === 'packed') return { text: 'PACKED & WAITING', color: 'bg-blue-500 text-white shadow-lg shadow-blue-500/30', icon: '🛍️' };
     if (s === 'paid') return { text: 'PREPARING ORDER', color: 'bg-yellow-400 text-yellow-900 shadow-lg shadow-yellow-400/30', icon: '⏳' };
     if (s === 'pending_cash') return { text: 'PAY ON DELIVERY', color: 'bg-orange-500 text-white shadow-lg shadow-orange-500/30', icon: '💵' };
+    
+    // 🚨 Add visual theme for Cancelled
+    if (s === 'cancelled') return { text: 'ORDER CANCELLED', color: 'bg-red-500 text-white shadow-lg shadow-red-500/30', icon: '❌' };
     
     return { text: 'PROCESSING', color: 'bg-gray-200 text-gray-700', icon: '🔄' };
   };
@@ -64,12 +80,11 @@ const MyOrders = () => {
               let safeToken = order.orderToken;
               if (!safeToken || safeToken === 'WAIT') { safeToken = order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : '....'; }
               
-              // 🚨 AUDIT FIX: Now rendering the TRUE secure database PIN!
               const secretPin = order.pickupPin || '----'; 
               const isCashOrder = order.paymentType === 'CASH' || order.orderStatus === 'pending_cash';
 
               return (
-                <div key={order.id} style={{ animationDelay: `${index * 0.1}s` }} className="bg-white rounded-[2rem] overflow-hidden shadow-xl shadow-gray-200/50 border border-gray-200 anim-pop">
+                <div key={order.id} style={{ animationDelay: `${index * 0.1}s` }} className={`bg-white rounded-[2rem] overflow-hidden shadow-xl border border-gray-200 anim-pop ${order.orderStatus === 'cancelled' ? 'opacity-80 grayscale-[50%]' : 'shadow-gray-200/50'}`}>
                   
                   <div className={`px-6 py-4 flex items-center justify-between ${status.color}`}>
                     <div className="flex items-center gap-2">
@@ -82,9 +97,17 @@ const MyOrders = () => {
                     <div className="flex-1 border-b md:border-b-0 md:border-r border-dashed border-gray-200 pb-6 md:pb-0 md:pr-8">
                       <div className="mb-6 bg-gray-50 p-6 rounded-2xl border border-gray-100 text-center">
                         <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Callout Token</p>
-                        <h2 className="text-7xl font-black text-gray-900 tracking-tighter drop-shadow-sm">{safeToken}</h2>
+                        <h2 className={`text-7xl font-black tracking-tighter drop-shadow-sm ${order.orderStatus === 'cancelled' ? 'text-gray-400' : 'text-gray-900'}`}>{safeToken}</h2>
                         <p className="text-xs font-bold text-gray-500 mt-2">Listen for this number at the counter.</p>
                       </div>
+
+                      {/* 🚨 THE REASON BANNER */}
+                      {order.orderStatus === 'cancelled' && (
+                        <div className="mb-6 bg-red-50 p-4 rounded-2xl border border-red-200 text-left">
+                          <p className="text-[10px] font-black text-red-800 uppercase tracking-widest mb-1">Cancellation Reason</p>
+                          <p className="text-sm font-bold text-red-600">{order.cancelReason || 'Cancelled by store administration'}</p>
+                        </div>
+                      )}
 
                       <div className="bg-green-50 rounded-2xl p-5 border border-green-100 flex items-center justify-between shadow-inner">
                         <div>

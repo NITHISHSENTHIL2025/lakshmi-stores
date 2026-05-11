@@ -1,9 +1,10 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/db');
+const dbExport = require('../config/db');
+const sequelize = dbExport.sequelize || dbExport;
 
 const Notification = sequelize.define('Notification', {
   id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-  userId: { type: DataTypes.UUID, allowNull: false }, // The customer's ID
+  userId: { type: DataTypes.STRING, allowNull: false }, // 🚨 FIX: Changed to STRING to support IDs and 'GLOBAL' broadcasts
   title: { type: DataTypes.STRING, allowNull: false },
   message: { type: DataTypes.TEXT, allowNull: false },
   isRead: { type: DataTypes.BOOLEAN, defaultValue: false }

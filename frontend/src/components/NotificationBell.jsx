@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-// Make sure to run: npm install lucide-react (if you haven't already)
 import { Bell } from 'lucide-react'; 
-import axios from 'axios';
+import api from '../api/axios'; // 🚨 FIX: Using your custom API instance for Authentication!
 
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
@@ -10,13 +9,16 @@ const NotificationBell = () => {
   useEffect(() => {
     const fetchNotifs = async () => {
       try {
-        const { data } = await axios.get('https://lakshmi-stores-api.onrender.com/api/notifications/mine', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
-        setNotifications(data.data);
-      } catch (err) { console.error("Could not fetch notifications"); }
+        // 🚨 FIX: api.get automatically adds your token and base URL
+        const { data } = await api.get('/notifications/mine');
+        if (data && data.data) {
+           setNotifications(data.data);
+        }
+      } catch (err) { 
+        console.error("Could not fetch notifications", err); 
+      }
     };
-    // Only fetch if logged in
+    
     if (localStorage.getItem('token')) {
       fetchNotifs();
     }
@@ -25,14 +27,9 @@ const NotificationBell = () => {
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const handleRead = async (id) => {
-    // 1. Optimistic UI update (feels instantly fast to the user)
     setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: true } : n));
-    
-    // 2. Tell the backend silently
     try {
-      await axios.put(`https://lakshmi-stores-api.onrender.com/api/notifications/${id}/read`, {}, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      await api.put(`/notifications/${id}/read`);
     } catch (error) {
       console.error("Failed to mark read");
     }
@@ -42,7 +39,7 @@ const NotificationBell = () => {
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)} 
-        className="relative p-2 rounded-full hover:bg-gray-100 transition flex items-center justify-center"
+        className="relative p-2 rounded-full hover:bg-gray-100 transition flex items-center justify-center cursor-pointer"
       >
         <Bell className="w-6 h-6 text-gray-700" />
         {unreadCount > 0 && (

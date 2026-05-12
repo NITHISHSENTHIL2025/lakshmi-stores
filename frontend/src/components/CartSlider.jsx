@@ -4,7 +4,7 @@ import { load } from '@cashfreepayments/cashfree-js';
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast'; // 🚨 Imported toast
+import toast from 'react-hot-toast'; 
 
 const CartSlider = () => {
   const { isCartOpen, setIsCartOpen, cartItems, updateQuantity, removeFromCart, cartTotal, clearCart } = useCart();
@@ -18,7 +18,6 @@ const CartSlider = () => {
   const [customerNote, setCustomerNote] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   
-  // 🚨 Listen for store status AND the 10 min warning
   const [storeStatus, setStoreStatus] = useState({ isOpen: true, closingWarningActive: false });
   const navigate = useNavigate();
 
@@ -37,7 +36,6 @@ const CartSlider = () => {
     }
   }, [isCartOpen]);
 
-  // 🚨 NEW: Handle Late Request logic
   const handleLateRequest = async () => {
     if (loading || cartItems.length === 0) return;
     if (!user) { setIsCartOpen(false); navigate('/login'); return; }
@@ -47,6 +45,7 @@ const CartSlider = () => {
     try {
       await api.post('/orders/request-late', {
         orderAmount: cartTotal,
+        totalAmount: cartTotal, // 🚨 THE BUG FIX: Passing totalAmount so DB doesn't crash
         customerEmail: user.email || 'guest@lakshmistores.com',
         customerPhone: user.phone || '9999999999',
         items: cartItems.map(item => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category })),

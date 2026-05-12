@@ -64,7 +64,6 @@ exports.updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { orderStatus } = req.body;
 
-    // 🚨 Added 'pending_approval' to allowed statuses
     const allowedStatuses = [
       'pending_approval', 'pending_payment', 'pending_cash', 'paid',
       'packed', 'ready', 'completed', 'cancelled', 'failed'
@@ -77,7 +76,6 @@ exports.updateOrderStatus = async (req, res) => {
     const order = await Order.findByPk(id, { include: [{ model: OrderItem, as: 'items' }] });
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
 
-    // Cancel & Restore Stock Logic
     if (['cancelled', 'failed'].includes(orderStatus) && !['cancelled', 'failed'].includes(order.orderStatus)) {
       const t = await sequelize.transaction();
       try {
@@ -93,7 +91,6 @@ exports.updateOrderStatus = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to restore stock during cancellation.' });
       }
     } else {
-      // 🚨 APPROVAL LOGIC: If Admin approves the late request, ping the customer!
       if (orderStatus === 'pending_cash' && order.orderStatus === 'pending_approval') {
         await Notification.create({
           userId: order.userId ? String(order.userId) : 'GLOBAL',
@@ -122,7 +119,8 @@ exports.updateOrderStatus = async (req, res) => {
 exports.requestLateOrder = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { orderAmount, customerEmail, customerPhone, items, customerNote } = req.body;
+    // 🚨 FIX: Extracting totalAmount from req.body
+    const { orderAmount, totalAmount, customerEmail, customerPhone, items, customerNote } = req.body;
 
     if (!items || items.length === 0) {
       await t.rollback();
@@ -132,7 +130,8 @@ exports.requestLateOrder = async (req, res) => {
     // Create a special pending order
     const order = await Order.create({
       userId: req.user ? req.user.id : null,
-      orderAmount,
+      orderAmount: orderAmount,
+      totalAmount: totalAmount || orderAmount, // 🚨 THE BUG FIX: Safely ensuring totalAmount is never null
       paymentType: 'CASH', // Late requests default to Pay-at-counter for speed
       orderStatus: 'pending_approval',
       customerEmail,

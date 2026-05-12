@@ -4,6 +4,7 @@ import { load } from '@cashfreepayments/cashfree-js';
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast'; // 🚨 Imported toast
 
 const CartSlider = () => {
   const { isCartOpen, setIsCartOpen, cartItems, updateQuantity, removeFromCart, cartTotal, clearCart } = useCart();
@@ -11,18 +12,16 @@ const CartSlider = () => {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
   const [paymentMethod, setPaymentMethod] = useState('online'); 
   const [pickupTime, setPickupTime] = useState('ASAP');
   const [specificTime, setSpecificTime] = useState('');
   const [customerNote, setCustomerNote] = useState('');
-  
   const [isSuccess, setIsSuccess] = useState(false);
-  const [isShopOpen, setIsShopOpen] = useState(true);
   
+  // 🚨 Listen for store status AND the 10 min warning
+  const [storeStatus, setStoreStatus] = useState({ isOpen: true, closingWarningActive: false });
   const navigate = useNavigate();
 
-  // Dynamic min time calculated for UI rendering
   const getDynamicMinTime = () => {
     const now = new Date();
     const currentHours = now.getHours().toString().padStart(2, '0');
@@ -32,77 +31,74 @@ const CartSlider = () => {
 
   useEffect(() => {
     if (isCartOpen) {
-      api.get('/store/status').then(res => setIsShopOpen(res.data.isOpen)).catch(()=>setIsShopOpen(true));
+      api.get('/store/status')
+         .then(res => setStoreStatus(res.data))
+         .catch(() => setStoreStatus({ isOpen: true, closingWarningActive: false }));
     }
   }, [isCartOpen]);
 
-  const handleCheckout = async () => {
-    // 🚨 PRODUCTION FIX: Prevent double-taps by enforcing loading state immediately
-    if (loading || cartItems.length === 0 || !isShopOpen) return;
-    setError(null);
-    
-    // 🚨 PRODUCTION FIX: Time-Travel Checkout Prevention (Validating exactly at submit time)
-    if (pickupTime === 'LATER') {
-      if (!specificTime) {
-        setError("Please select a specific time for pickup.");
-        return;
-      }
-      const absoluteMinTime = getDynamicMinTime();
-      if (specificTime < absoluteMinTime) {
-        setError(`Pickup time cannot be in the past. Please select a time after ${absoluteMinTime}.`);
-        return;
-      }
-    }
-
-    if (!user) { 
-      setIsCartOpen(false); 
-      navigate('/login'); 
-      return; 
-    }
+  // 🚨 NEW: Handle Late Request logic
+  const handleLateRequest = async () => {
+    if (loading || cartItems.length === 0) return;
+    if (!user) { setIsCartOpen(false); navigate('/login'); return; }
 
     setLoading(true);
+    setError(null);
+    try {
+      await api.post('/orders/request-late', {
+        orderAmount: cartTotal,
+        customerEmail: user.email || 'guest@lakshmistores.com',
+        customerPhone: user.phone || '9999999999',
+        items: cartItems.map(item => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category })),
+        customerNote: customerNote
+      });
+      
+      toast.success('Late request sent to Admin for approval!');
+      clearCart();
+      setIsCartOpen(false);
+      navigate('/orders');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send request. Store might be fully closed.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const handleCheckout = async () => {
+    if (loading || cartItems.length === 0 || !storeStatus.isOpen) return;
+    setError(null);
+    
+    if (pickupTime === 'LATER') {
+      if (!specificTime) { setError("Please select a specific time for pickup."); return; }
+      const absoluteMinTime = getDynamicMinTime();
+      if (specificTime < absoluteMinTime) { setError(`Pickup time cannot be in the past. Select after ${absoluteMinTime}.`); return; }
+    }
+
+    if (!user) { setIsCartOpen(false); navigate('/login'); return; }
+
+    setLoading(true);
     const userId = user.id;
     const safeEmail = user.email || 'guest@lakshmistores.com';
     const safePhone = user.phone || '9999999999';
     const finalPickupTime = pickupTime === 'LATER' ? specificTime : 'ASAP';
-
-    // Generate Idempotency Key to prevent duplicate charges on network lag
     const idempotencyKey = window.crypto.randomUUID();
 
     try {
       const response = await api.post('/payment/create-order', {
-        orderAmount: cartTotal,
-        customerEmail: safeEmail,
-        customerPhone: safePhone,
-        userId: userId,
-        items: cartItems.map(item => ({
-          id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category
-        })),
-        totalAmount: cartTotal,
-        paymentMethod: paymentMethod, 
-        pickupTime: finalPickupTime,
-        customerNote: customerNote
-      }, {
-        headers: { 'X-Idempotency-Key': idempotencyKey }
-      });
+        orderAmount: cartTotal, customerEmail: safeEmail, customerPhone: safePhone, userId: userId,
+        items: cartItems.map(item => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category })),
+        totalAmount: cartTotal, paymentMethod: paymentMethod, pickupTime: finalPickupTime, customerNote: customerNote
+      }, { headers: { 'X-Idempotency-Key': idempotencyKey } });
 
       if (response.data.isCash) {
-        setIsSuccess(true);
-        clearCart();
-        setTimeout(() => {
-          setIsSuccess(false);
-          setIsCartOpen(false);
-          navigate('/orders'); 
-          setLoading(false);
-        }, 2000);
+        setIsSuccess(true); clearCart();
+        setTimeout(() => { setIsSuccess(false); setIsCartOpen(false); navigate('/orders'); setLoading(false); }, 2000);
         return;
       }
 
       if (response.data.success) {
         const cashfreeMode = import.meta.env.VITE_CASHFREE_MODE || "sandbox";
         const cashfree = await load({ mode: cashfreeMode }); 
-        
         cashfree.checkout({ paymentSessionId: response.data.payment_session_id, redirectTarget: "_self" });
         setIsCartOpen(false); 
       }
@@ -175,47 +171,62 @@ const CartSlider = () => {
           <div className="bg-white border-t border-gray-100 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-10">
             {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm font-bold rounded-xl border border-red-100 flex items-center gap-2"><span>⚠️</span> {error}</div>}
 
-            <div className="space-y-4 mb-6">
-              <div className="bg-gray-50 p-1 rounded-xl flex flex-col font-bold text-sm">
-                <div className="flex">
-                  <button onClick={() => setPickupTime('ASAP')} className={`flex-1 py-3 rounded-lg transition-colors cursor-pointer ${pickupTime === 'ASAP' ? 'bg-white shadow-sm text-orange-600 border border-orange-100' : 'text-gray-500 hover:text-gray-900'}`}>🏃 ASAP Pickup</button>
-                  <button onClick={() => setPickupTime('LATER')} className={`flex-1 py-3 rounded-lg transition-colors cursor-pointer ${pickupTime === 'LATER' ? 'bg-white shadow-sm text-orange-600 border border-orange-100' : 'text-gray-500 hover:text-gray-900'}`}>🕒 Pick up Later</button>
-                </div>
-                {pickupTime === 'LATER' && (
-                  <div className="mt-2 p-2 bg-white rounded-lg border border-orange-100 flex items-center gap-2">
-                    <span className="text-gray-400 text-xs uppercase tracking-widest pl-2">Select Time:</span>
-                    <input 
-                      type="time" 
-                      value={specificTime} 
-                      onChange={(e) => setSpecificTime(e.target.value)} 
-                      min={getDynamicMinTime()}
-                      max="22:00" 
-                      className="flex-1 bg-gray-50 border border-gray-200 rounded-md p-2 outline-none focus:border-orange-500 text-gray-900" 
-                    />
+            <textarea placeholder="Special instructions? (e.g., Pack in cloth bag)" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm font-bold text-gray-900 outline-none focus:border-orange-500 focus:bg-white transition-colors resize-none h-16 shadow-inner mb-4" />
+
+            {/* 🚨 THE MAGIC: Switch out the entire checkout UI if warning is active! */}
+            {storeStatus.closingWarningActive ? (
+              <div className="space-y-4">
+                 <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl text-center">
+                    <p className="text-yellow-800 font-black text-sm uppercase tracking-widest mb-1">⚠️ Store Closing Soon</p>
+                    <p className="text-yellow-700 text-xs font-bold">Standard checkouts are disabled. You can request a final order for Admin approval.</p>
+                 </div>
+                 
+                 <div className="flex justify-between items-end mb-2 px-2">
+                   <span className="text-gray-500 font-bold uppercase tracking-widest text-xs">Total Due</span>
+                   <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
+                 </div>
+
+                 <button onClick={handleLateRequest} disabled={loading} className="w-full text-white py-4 rounded-2xl font-black text-xl transition-all flex justify-center items-center gap-2 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 shadow-xl shadow-yellow-500/30 transform hover:scale-[1.02] active:scale-95 cursor-pointer">
+                    {loading ? <span className="animate-spin">⏳</span> : <span>Send Late Request 🏃</span>}
+                 </button>
+              </div>
+            ) : (
+              // Standard Checkout UI
+              <>
+                <div className="space-y-4 mb-6">
+                  <div className="bg-gray-50 p-1 rounded-xl flex flex-col font-bold text-sm">
+                    <div className="flex">
+                      <button onClick={() => setPickupTime('ASAP')} className={`flex-1 py-3 rounded-lg transition-colors cursor-pointer ${pickupTime === 'ASAP' ? 'bg-white shadow-sm text-orange-600 border border-orange-100' : 'text-gray-500 hover:text-gray-900'}`}>🏃 ASAP Pickup</button>
+                      <button onClick={() => setPickupTime('LATER')} className={`flex-1 py-3 rounded-lg transition-colors cursor-pointer ${pickupTime === 'LATER' ? 'bg-white shadow-sm text-orange-600 border border-orange-100' : 'text-gray-500 hover:text-gray-900'}`}>🕒 Pick up Later</button>
+                    </div>
+                    {pickupTime === 'LATER' && (
+                      <div className="mt-2 p-2 bg-white rounded-lg border border-orange-100 flex items-center gap-2">
+                        <span className="text-gray-400 text-xs uppercase tracking-widest pl-2">Select Time:</span>
+                        <input type="time" value={specificTime} onChange={(e) => setSpecificTime(e.target.value)} min={getDynamicMinTime()} max="22:00" className="flex-1 bg-gray-50 border border-gray-200 rounded-md p-2 outline-none focus:border-orange-500 text-gray-900" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <textarea placeholder="Special instructions? (e.g., Pack in cloth bag)" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm font-bold text-gray-900 outline-none focus:border-orange-500 focus:bg-white transition-colors resize-none h-16 shadow-inner" />
-
-              <div className="grid grid-cols-2 gap-2">
-                <div onClick={() => setPaymentMethod('online')} className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'online' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <span className="block text-2xl mb-1">💳</span><span className={`text-xs font-black uppercase ${paymentMethod === 'online' ? 'text-green-700' : 'text-gray-500'}`}>Pay Online</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div onClick={() => setPaymentMethod('online')} className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'online' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <span className="block text-2xl mb-1">💳</span><span className={`text-xs font-black uppercase ${paymentMethod === 'online' ? 'text-green-700' : 'text-gray-500'}`}>Pay Online</span>
+                    </div>
+                    <div onClick={() => setPaymentMethod('cash')} className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'cash' ? 'border-orange-500 bg-orange-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <span className="block text-2xl mb-1">💵</span><span className={`text-xs font-black uppercase ${paymentMethod === 'cash' ? 'text-orange-700' : 'text-gray-500'}`}>Pay at Counter</span>
+                    </div>
+                  </div>
                 </div>
-                <div onClick={() => setPaymentMethod('cash')} className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${paymentMethod === 'cash' ? 'border-orange-500 bg-orange-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <span className="block text-2xl mb-1">💵</span><span className={`text-xs font-black uppercase ${paymentMethod === 'cash' ? 'text-orange-700' : 'text-gray-500'}`}>Pay at Counter</span>
+
+                <div className="flex justify-between items-end mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <span className="text-gray-500 font-bold uppercase tracking-widest text-xs">Total Due</span>
+                  <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
                 </div>
-              </div>
-            </div>
 
-            <div className="flex justify-between items-end mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
-              <span className="text-gray-500 font-bold uppercase tracking-widest text-xs">Total Due</span>
-              <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
-            </div>
-
-            <button onClick={handleCheckout} disabled={loading || !isShopOpen} className={`w-full text-white py-4 rounded-2xl font-black text-xl transition-all flex justify-center items-center gap-2 ${!isShopOpen ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-xl shadow-orange-500/30 transform hover:scale-[1.02] active:scale-95 cursor-pointer'}`}>
-              {loading ? <span className="animate-spin">⏳</span> : !isShopOpen ? <span>Shop is Closed</span> : <span>{paymentMethod === 'online' ? 'Pay Securely' : 'Place Order'} ➔</span>}
-            </button>
+                <button onClick={handleCheckout} disabled={loading || !storeStatus.isOpen} className={`w-full text-white py-4 rounded-2xl font-black text-xl transition-all flex justify-center items-center gap-2 ${!storeStatus.isOpen ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-xl shadow-orange-500/30 transform hover:scale-[1.02] active:scale-95 cursor-pointer'}`}>
+                  {loading ? <span className="animate-spin">⏳</span> : !storeStatus.isOpen ? <span>Shop is Closed</span> : <span>{paymentMethod === 'online' ? 'Pay Securely' : 'Place Order'} ➔</span>}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

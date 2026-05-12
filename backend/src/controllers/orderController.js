@@ -26,12 +26,7 @@ exports.getAllOrders = async (req, res) => {
     res.status(200).json({
       success: true,
       data: orders,
-      pagination: {
-        total: count,
-        page,
-        pages: Math.ceil(count / limit),
-        limit
-      }
+      pagination: { total: count, page, pages: Math.ceil(count / limit), limit }
     });
   } catch (error) {
     console.error('❌ getAllOrders error:', error);
@@ -69,33 +64,25 @@ exports.updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { orderStatus } = req.body;
 
+    // 🚨 Added 'pending_approval' to allowed statuses
     const allowedStatuses = [
-      'pending_payment', 'pending_cash', 'paid',
+      'pending_approval', 'pending_payment', 'pending_cash', 'paid',
       'packed', 'ready', 'completed', 'cancelled', 'failed'
     ];
 
     if (!orderStatus || !allowedStatuses.includes(orderStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`
-      });
+      return res.status(400).json({ success: false, message: `Invalid status.` });
     }
 
-    const order = await Order.findByPk(id, {
-      include: [{ model: OrderItem, as: 'items' }]
-    });
-    
+    const order = await Order.findByPk(id, { include: [{ model: OrderItem, as: 'items' }] });
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
 
+    // Cancel & Restore Stock Logic
     if (['cancelled', 'failed'].includes(orderStatus) && !['cancelled', 'failed'].includes(order.orderStatus)) {
       const t = await sequelize.transaction();
       try {
         for (const item of order.items) {
-          await Product.increment('real_stock', { 
-            by: item.quantity, 
-            where: { id: item.productId }, 
-            transaction: t 
-          });
+          await Product.increment('real_stock', { by: item.quantity, where: { id: item.productId }, transaction: t });
         }
         order.orderStatus = orderStatus;
         await order.save({ transaction: t });
@@ -106,6 +93,15 @@ exports.updateOrderStatus = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to restore stock during cancellation.' });
       }
     } else {
+      // 🚨 APPROVAL LOGIC: If Admin approves the late request, ping the customer!
+      if (orderStatus === 'pending_cash' && order.orderStatus === 'pending_approval') {
+        await Notification.create({
+          userId: order.userId ? String(order.userId) : 'GLOBAL',
+          title: '✅ Late Order Approved!',
+          message: `Good news! Your late order request has been approved. Please come to the counter to pay and collect.`,
+          isRead: false
+        });
+      }
       order.orderStatus = orderStatus;
       await order.save();
     }
@@ -121,14 +117,72 @@ exports.updateOrderStatus = async (req, res) => {
 };
 
 // ============================================================
-// ADMIN ACTION: Cancel Order, Restore Stock, Send Notification
+// 🚨 NEW: SUBMIT LATE ORDER REQUEST (10-Min Warning Flow)
+// ============================================================
+exports.requestLateOrder = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { orderAmount, customerEmail, customerPhone, items, customerNote } = req.body;
+
+    if (!items || items.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'Cart is empty.' });
+    }
+
+    // Create a special pending order
+    const order = await Order.create({
+      userId: req.user ? req.user.id : null,
+      orderAmount,
+      paymentType: 'CASH', // Late requests default to Pay-at-counter for speed
+      orderStatus: 'pending_approval',
+      customerEmail,
+      customerPhone,
+      customerNote: customerNote ? `[LATE REQUEST] ${customerNote}` : '[LATE REQUEST]',
+      orderToken: 'REQ-' + Math.floor(1000 + Math.random() * 9000),
+      cashfreeOrderId: `req_${Date.now()}` // Dummy ID for requests
+    }, { transaction: t });
+
+    // Save items and securely lock stock temporarily
+    for (const item of items) {
+      await OrderItem.create({
+        orderId: order.id, productId: item.id, name: item.name, price: item.price, quantity: item.quantity
+      }, { transaction: t });
+
+      await Product.decrement('real_stock', {
+        by: item.quantity, where: { id: item.id }, transaction: t
+      });
+    }
+
+    // Ping the Admin Dashboard
+    await Notification.create({
+      userId: 'GLOBAL',
+      title: '🚨 LATE ORDER REQUEST',
+      message: `A customer is requesting a last-minute order worth ₹${orderAmount}. Please check the Packing Station!`,
+      isRead: false
+    }, { transaction: t });
+
+    await t.commit();
+    
+    const io = req.app.get('io');
+    if (io) io.emit('storeUpdated');
+
+    res.status(200).json({ success: true, order });
+  } catch (error) {
+    await t.rollback();
+    console.error('Late Request Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to submit late request' });
+  }
+};
+
+// ============================================================
+// ADMIN ACTION: Cancel Order & Restore Stock
 // ============================================================
 exports.cancelOrderAdmin = async (req, res) => {
   const t = await sequelize.transaction(); 
   
   try {
     const orderId = req.params.id;
-    const { cancelReason } = req.body; // 🚨 Catch the reason
+    const { cancelReason } = req.body; 
 
     if (!cancelReason) {
       await t.rollback();
@@ -150,20 +204,17 @@ exports.cancelOrderAdmin = async (req, res) => {
     if (order.items && order.items.length > 0) {
       for (let item of order.items) {
         await Product.increment('real_stock', {
-          by: item.quantity,
-          where: { id: item.productId },
-          transaction: t
+          by: item.quantity, where: { id: item.productId }, transaction: t
         });
       }
     }
 
     order.orderStatus = 'cancelled';
-    order.cancelReason = cancelReason; // 🚨 Save the reason
+    order.cancelReason = cancelReason; 
     await order.save({ transaction: t });
 
     let displayToken = order.orderToken && order.orderToken !== 'WAIT' 
-      ? order.orderToken 
-      : (order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : 'Unknown');
+      ? order.orderToken : (order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : 'Unknown');
 
     await Notification.create({
       userId: order.userId ? String(order.userId) : 'GLOBAL',
@@ -173,14 +224,12 @@ exports.cancelOrderAdmin = async (req, res) => {
     }, { transaction: t });
 
     await t.commit();
-    
     const io = req.app.get('io');
     if (io) io.emit('storeUpdated');
 
     res.status(200).json({ success: true, message: 'Order cancelled and stock restored.' });
   } catch (error) {
     await t.rollback();
-    console.error('Cancel Order Error:', error);
     res.status(500).json({ success: false, message: 'Server error during cancellation.' });
   }
 };

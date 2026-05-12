@@ -17,12 +17,12 @@ const MyOrders = () => {
     try {
       const response = await api.get('/orders/my-orders');
       
-      // 🚨 FIX: Filter logic now keeps cancelled orders for 6 hours
       const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
       
       const active = response.data.data.filter(o => {
         const status = o.orderStatus.toLowerCase();
-        if (['paid', 'pending_cash', 'packed', 'ready'].includes(status)) return true;
+        // 🚨 FIX: Allow pending_approval to show up on the Live Orders tracker
+        if (['pending_approval', 'paid', 'pending_cash', 'packed', 'ready'].includes(status)) return true;
         
         if (status === 'cancelled') {
            const cancelTime = new Date(o.updatedAt);
@@ -42,12 +42,14 @@ const MyOrders = () => {
   const getStatusDisplay = (order) => {
     const s = order.orderStatus.toLowerCase();
     
+    // 🚨 Custom display for Late Requests
+    if (s === 'pending_approval') return { text: 'AWAITING STORE APPROVAL', color: 'bg-yellow-400 text-yellow-900 shadow-lg shadow-yellow-400/30 animate-pulseSoft', icon: '⏳' };
+
     if (s === 'ready') return { text: 'READY FOR PICKUP!', color: 'bg-green-500 text-white shadow-lg shadow-green-500/30 animate-pulseSoft', icon: '✅' };
     if (s === 'packed') return { text: 'PACKED & WAITING', color: 'bg-blue-500 text-white shadow-lg shadow-blue-500/30', icon: '🛍️' };
     if (s === 'paid') return { text: 'PREPARING ORDER', color: 'bg-yellow-400 text-yellow-900 shadow-lg shadow-yellow-400/30', icon: '⏳' };
-    if (s === 'pending_cash') return { text: 'PAY ON DELIVERY', color: 'bg-orange-500 text-white shadow-lg shadow-orange-500/30', icon: '💵' };
+    if (s === 'pending_cash') return { text: 'APPROVED: PAY AT COUNTER', color: 'bg-orange-500 text-white shadow-lg shadow-orange-500/30', icon: '💵' };
     
-    // 🚨 Add visual theme for Cancelled
     if (s === 'cancelled') return { text: 'ORDER CANCELLED', color: 'bg-red-500 text-white shadow-lg shadow-red-500/30', icon: '❌' };
     
     return { text: 'PROCESSING', color: 'bg-gray-200 text-gray-700', icon: '🔄' };
@@ -81,7 +83,7 @@ const MyOrders = () => {
               if (!safeToken || safeToken === 'WAIT') { safeToken = order.cashfreeOrderId ? order.cashfreeOrderId.slice(-4) : '....'; }
               
               const secretPin = order.pickupPin || '----'; 
-              const isCashOrder = order.paymentType === 'CASH' || order.orderStatus === 'pending_cash';
+              const isCashOrder = order.paymentType === 'CASH' || order.orderStatus === 'pending_cash' || order.orderStatus === 'pending_approval';
 
               return (
                 <div key={order.id} style={{ animationDelay: `${index * 0.1}s` }} className={`bg-white rounded-[2rem] overflow-hidden shadow-xl border border-gray-200 anim-pop ${order.orderStatus === 'cancelled' ? 'opacity-80 grayscale-[50%]' : 'shadow-gray-200/50'}`}>
@@ -101,7 +103,6 @@ const MyOrders = () => {
                         <p className="text-xs font-bold text-gray-500 mt-2">Listen for this number at the counter.</p>
                       </div>
 
-                      {/* 🚨 THE REASON BANNER */}
                       {order.orderStatus === 'cancelled' && (
                         <div className="mb-6 bg-red-50 p-4 rounded-2xl border border-red-200 text-left">
                           <p className="text-[10px] font-black text-red-800 uppercase tracking-widest mb-1">Cancellation Reason</p>

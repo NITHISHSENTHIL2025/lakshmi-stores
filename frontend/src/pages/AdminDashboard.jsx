@@ -35,7 +35,7 @@ const AdminDashboard = () => {
 
   const [cancelModal, setCancelModal] = useState({ isOpen: false, order: null, reason: 'Customer did not pick up' });
 
-  // 🚨 UPGRADE: Customer Profile Modal State
+  // 🚨 Customer Profile Modal State
   const [customerDetailsModal, setCustomerDetailsModal] = useState(null);
 
   const prevOrderCount = useRef(0);
@@ -134,7 +134,8 @@ const AdminDashboard = () => {
       const response = await api.get('/orders');
       const allOrders = response.data.data;
       
-      const active = allOrders.filter(o => ['paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
+      // 🚨 PRODUCTION FIX: Added 'pending_approval' to active orders array!
+      const active = allOrders.filter(o => ['pending_approval', 'paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
 
       if (isBackgroundSync && active.length > prevOrderCount.current && prevOrderCount.current !== 0) playAlarm(); 
       prevOrderCount.current = active.length;
@@ -211,7 +212,8 @@ const AdminDashboard = () => {
 
   const safeNumber = (val) => isNaN(Number(val)) ? 0 : Number(val);
   
-  const activeOrders = orders.filter(o => ['paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
+  // 🚨 PRODUCTION FIX: Added 'pending_approval' to active view filters
+  const activeOrders = orders.filter(o => ['pending_approval', 'paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
   const pastOrders = orders.filter(o => ['completed', 'cancelled', 'pending', 'failed'].includes(o.orderStatus.toLowerCase()));
   
   const today = new Date().toDateString();
@@ -224,10 +226,11 @@ const AdminDashboard = () => {
     const s = order.orderStatus.toLowerCase();
     const isCash = order.paymentType === 'CASH' || s === 'pending_cash';
 
+    // 🚨 PRODUCTION FIX: Badge for Late Order Requests
+    if (s === 'pending_approval') return <span className="px-4 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-yellow-300 shadow-sm animate-pulse">Action Required</span>;
     if (s === 'pending') return <span className="px-4 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-[10px] font-black uppercase tracking-widest border border-gray-200">Awaiting Online Payment</span>;
     if (s === 'failed') return <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-red-200">Payment Failed</span>;
     if (s === 'completed') return <span className="px-4 py-1.5 bg-gray-100 text-gray-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-gray-200">Completed</span>;
-
     if (s === 'ready') return <span className="px-4 py-1.5 bg-indigo-100 text-indigo-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-indigo-200 shadow-sm animate-pulseSoft">Ready</span>;
     if (s === 'packed') return <span className="px-4 py-1.5 bg-blue-100 text-blue-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-blue-200">Packed</span>;
     
@@ -254,7 +257,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 🚨 UPGRADE: CUSTOMER DETAILS MODAL (Feature C) */}
+      {/* CUSTOMER DETAILS MODAL */}
       {customerDetailsModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[500] backdrop-blur-sm transition-opacity duration-300">
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl anim-slide-up border border-gray-100 text-center relative">
@@ -574,12 +577,14 @@ const AdminDashboard = () => {
                   {activeOrders.map((order) => {
                     let displayToken = order.orderToken;
                     if (!displayToken || displayToken === 'WAIT') displayToken = order.cashfreeOrderId.slice(-4);
+                    
+                    // 🚨 THE MAGIC: Check if this is a Late Request awaiting approval!
+                    const isLateReq = order.orderStatus === 'pending_approval';
 
                     return (
-                      <tr key={order.id} className={`transition-colors ${order.orderStatus.includes('cash') || order.paymentType === 'CASH' ? 'bg-orange-50/30 hover:bg-orange-50' : 'hover:bg-gray-50/50'}`}>
+                      <tr key={order.id} className={`transition-colors ${isLateReq ? 'bg-yellow-50/80 border-l-4 border-yellow-500 shadow-inner' : order.orderStatus.includes('cash') || order.paymentType === 'CASH' ? 'bg-orange-50/30 hover:bg-orange-50' : 'hover:bg-gray-50/50'}`}>
                         <td className="p-6 pl-8">
                           <div className="font-black text-gray-900 text-4xl tracking-tighter">{displayToken}</div>
-                          {/* 🚨 UPGRADE: Clickable Customer Badge */}
                           <button onClick={() => setCustomerDetailsModal(order)} className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-1 hover:text-orange-600 transition-colors cursor-pointer text-left w-full">
                             <span>👤</span> {order.customerEmail ? order.customerEmail.split('@')[0].toUpperCase() : 'GUEST'}
                           </button>
@@ -589,14 +594,34 @@ const AdminDashboard = () => {
                         <td className="p-6 font-black text-gray-900 text-2xl tracking-tighter">₹{safeNumber(order.orderAmount)}</td>
                         <td className="p-6">{getStatusBadge(order)}</td>
                         <td className="p-6 pr-8 text-right flex justify-end gap-3 items-center">
-                          <button onClick={() => setSelectedOrder(order)} className="px-5 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-black rounded-xl hover:bg-gray-50 transition shadow-sm cursor-pointer transform hover:-translate-y-0.5" title="View Details">👁️ View</button>
-                          <button onClick={() => printLabel(order)} className="px-5 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-black rounded-xl hover:bg-gray-50 transition shadow-sm cursor-pointer transform hover:-translate-y-0.5" title="Print Label">🖨️</button>
-                          {(order.orderStatus.toLowerCase() === 'paid' || order.orderStatus.toLowerCase() === 'pending_cash') && 
-                            <button onClick={() => updateOrderStatus(order.id, 'packed')} className="px-6 py-3 bg-gray-900 text-white text-sm font-black rounded-xl hover:bg-gray-800 transition shadow-lg cursor-pointer transform hover:-translate-y-0.5">📦 Pack Order</button>}
-                          {order.orderStatus.toLowerCase() === 'packed' && 
-                            <button onClick={() => updateOrderStatus(order.id, 'ready')} className="px-6 py-3 bg-orange-500 text-white text-sm font-black rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-500/30 cursor-pointer">🔔 Call Token</button>}
-                          {order.orderStatus.toLowerCase() === 'ready' && 
-                            <button onClick={() => startHandover(order)} className="px-6 py-3 bg-green-500 text-white text-sm font-black rounded-xl hover:bg-green-600 transition shadow-lg shadow-green-500/30 cursor-pointer flex items-center gap-2 transform hover:scale-105"><span>🔒</span> VERIFY PIN</button>}
+                          {/* 🚨 PRODUCTION FIX: The Accept/Deny Buttons for Late Requests */}
+                          {isLateReq ? (
+                            <>
+                              <button 
+                                onClick={() => updateOrderStatus(order.id, 'pending_cash')} 
+                                className="px-6 py-3 bg-green-500 text-white text-sm font-black rounded-xl hover:bg-green-600 transition shadow-lg cursor-pointer transform hover:scale-105 border-b-4 border-green-700 active:border-b-0 active:translate-y-1"
+                              >
+                                ✅ Accept Request
+                              </button>
+                              <button 
+                                onClick={() => { setCancelModal({ isOpen: true, order, reason: 'Store is closing' }); setSelectedOrder(null); }} 
+                                className="px-6 py-3 bg-red-500 text-white text-sm font-black rounded-xl hover:bg-red-600 transition shadow-lg cursor-pointer transform hover:scale-105 border-b-4 border-red-700 active:border-b-0 active:translate-y-1"
+                              >
+                                ❌ Deny
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => setSelectedOrder(order)} className="px-5 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-black rounded-xl hover:bg-gray-50 transition shadow-sm cursor-pointer transform hover:-translate-y-0.5" title="View Details">👁️ View</button>
+                              <button onClick={() => printLabel(order)} className="px-5 py-3 bg-white border border-gray-200 text-gray-700 text-sm font-black rounded-xl hover:bg-gray-50 transition shadow-sm cursor-pointer transform hover:-translate-y-0.5" title="Print Label">🖨️</button>
+                              {(order.orderStatus.toLowerCase() === 'paid' || order.orderStatus.toLowerCase() === 'pending_cash') && 
+                                <button onClick={() => updateOrderStatus(order.id, 'packed')} className="px-6 py-3 bg-gray-900 text-white text-sm font-black rounded-xl hover:bg-gray-800 transition shadow-lg cursor-pointer transform hover:-translate-y-0.5">📦 Pack Order</button>}
+                              {order.orderStatus.toLowerCase() === 'packed' && 
+                                <button onClick={() => updateOrderStatus(order.id, 'ready')} className="px-6 py-3 bg-orange-500 text-white text-sm font-black rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-500/30 cursor-pointer">🔔 Call Token</button>}
+                              {order.orderStatus.toLowerCase() === 'ready' && 
+                                <button onClick={() => startHandover(order)} className="px-6 py-3 bg-green-500 text-white text-sm font-black rounded-xl hover:bg-green-600 transition shadow-lg shadow-green-500/30 cursor-pointer flex items-center gap-2 transform hover:scale-105"><span>🔒</span> VERIFY PIN</button>}
+                            </>
+                          )}
                         </td>
                       </tr>
                     );
@@ -759,7 +784,6 @@ const AdminDashboard = () => {
                     <tr key={order.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="p-6 pl-8">
                         <div className="font-bold text-gray-500 text-sm">{new Date(order.createdAt).toLocaleString()}</div>
-                        {/* 🚨 UPGRADE: Clickable Customer Badge in History */}
                         <button onClick={() => setCustomerDetailsModal(order)} className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 hover:text-orange-500 transition cursor-pointer text-left w-full">
                           👤 {order.customerEmail ? order.customerEmail.split('@')[0].toUpperCase() : 'GUEST'}
                         </button>

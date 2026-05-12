@@ -4,7 +4,7 @@ import api from '../api/axios';
 import AdminProductManager from '../components/AdminProductManager';
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
-import toast from 'react-hot-toast'; // 🚨 Imported toast
+import toast from 'react-hot-toast'; 
 
 const socketUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 const socket = io(socketUrl, {
@@ -33,8 +33,10 @@ const AdminDashboard = () => {
   const [eta, setEta] = useState('Tomorrow');
   const [notifyLoading, setNotifyLoading] = useState(false);
 
-  // 🚨 New Cancel Modal State
   const [cancelModal, setCancelModal] = useState({ isOpen: false, order: null, reason: 'Customer did not pick up' });
+
+  // 🚨 UPGRADE: Customer Profile Modal State
+  const [customerDetailsModal, setCustomerDetailsModal] = useState(null);
 
   const prevOrderCount = useRef(0);
   const navigate = useNavigate();
@@ -252,6 +254,38 @@ const AdminDashboard = () => {
         </div>
       )}
 
+      {/* 🚨 UPGRADE: CUSTOMER DETAILS MODAL (Feature C) */}
+      {customerDetailsModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[500] backdrop-blur-sm transition-opacity duration-300">
+          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl anim-slide-up border border-gray-100 text-center relative">
+            <button onClick={() => setCustomerDetailsModal(null)} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold transition-colors cursor-pointer">✕</button>
+            
+            <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 shadow-inner">👤</div>
+            <h2 className="text-2xl font-black text-gray-900 mb-1">Customer Profile</h2>
+            
+            <div className="bg-gray-50 rounded-xl p-4 mt-6 text-left border border-gray-100">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email Address</p>
+              <p className="font-bold text-gray-900 mb-4">{customerDetailsModal.customerEmail || 'Guest User'}</p>
+              
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Phone Number</p>
+              <p className="font-bold text-gray-900">{customerDetailsModal.customerPhone || 'Not provided'}</p>
+            </div>
+
+            <div className="mt-6 flex justify-center gap-3">
+              {customerDetailsModal.customerPhone && (
+                <a href={`tel:${customerDetailsModal.customerPhone}`} className="flex-1 py-3 bg-green-50 text-green-700 font-black rounded-xl hover:bg-green-100 transition-colors flex items-center justify-center gap-2 border border-green-200 shadow-sm cursor-pointer">📞 Call</a>
+              )}
+              {customerDetailsModal.customerEmail && (
+                <a href={`mailto:${customerDetailsModal.customerEmail}`} className="flex-1 py-3 bg-blue-50 text-blue-700 font-black rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 border border-blue-200 shadow-sm cursor-pointer">✉️ Email</a>
+              )}
+              {!customerDetailsModal.customerPhone && !customerDetailsModal.customerEmail && (
+                 <div className="w-full p-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-sm border border-gray-200">No contact info available</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- NOTIFICATION ETA MODAL --- */}
       {notifyModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[400] backdrop-blur-sm transition-opacity duration-300">
@@ -291,7 +325,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 🚨 THE NEW CANCEL REASON MODAL */}
+      {/* CANCEL REASON MODAL */}
       {cancelModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[400] backdrop-blur-sm transition-opacity duration-300">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl anim-slide-up border border-red-100">
@@ -447,7 +481,6 @@ const AdminDashboard = () => {
               </div>
             </div>
             
-            {/* 🚨 Cancel Order Action */}
             <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
               {['paid', 'pending_cash', 'packed', 'ready'].includes(selectedOrder.orderStatus.toLowerCase()) && (
                 <button 
@@ -546,9 +579,10 @@ const AdminDashboard = () => {
                       <tr key={order.id} className={`transition-colors ${order.orderStatus.includes('cash') || order.paymentType === 'CASH' ? 'bg-orange-50/30 hover:bg-orange-50' : 'hover:bg-gray-50/50'}`}>
                         <td className="p-6 pl-8">
                           <div className="font-black text-gray-900 text-4xl tracking-tighter">{displayToken}</div>
-                          <div className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-1">
+                          {/* 🚨 UPGRADE: Clickable Customer Badge */}
+                          <button onClick={() => setCustomerDetailsModal(order)} className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-1 hover:text-orange-600 transition-colors cursor-pointer text-left w-full">
                             <span>👤</span> {order.customerEmail ? order.customerEmail.split('@')[0].toUpperCase() : 'GUEST'}
-                          </div>
+                          </button>
                           {order.pickupTime !== 'ASAP' && <span className="text-[10px] font-black bg-purple-100 text-purple-700 px-2 py-1 rounded-md uppercase tracking-widest mt-2 inline-block shadow-sm">⌚ {order.pickupTime}</span>}
                         </td>
                         <td className="p-6 font-bold text-gray-600 text-sm">{order.items.reduce((acc, item) => acc + item.quantity, 0)} Items</td>
@@ -631,7 +665,6 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                   
-                  {/* COMPLETED POS QUICK STOCK BUTTONS */}
                   <div className="flex flex-col gap-2">
                     <button 
                       onClick={() => handleQuickStock(product.id, 'decrease')} 
@@ -724,7 +757,13 @@ const AdminDashboard = () => {
                 <tbody className="divide-y divide-gray-100">
                   {pastOrders.slice(0, 50).map(order => (
                     <tr key={order.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-6 pl-8 font-bold text-gray-500 text-sm">{new Date(order.createdAt).toLocaleString()}</td>
+                      <td className="p-6 pl-8">
+                        <div className="font-bold text-gray-500 text-sm">{new Date(order.createdAt).toLocaleString()}</div>
+                        {/* 🚨 UPGRADE: Clickable Customer Badge in History */}
+                        <button onClick={() => setCustomerDetailsModal(order)} className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 hover:text-orange-500 transition cursor-pointer text-left w-full">
+                          👤 {order.customerEmail ? order.customerEmail.split('@')[0].toUpperCase() : 'GUEST'}
+                        </button>
+                      </td>
                       <td className="p-6 font-black text-gray-900">{order.orderToken && order.orderToken !== 'WAIT' ? order.orderToken : order.cashfreeOrderId?.slice(-4)}</td>
                       <td className="p-6 font-black text-gray-900">₹{order.orderAmount}</td>
                       <td className="p-6">{getStatusBadge(order)}</td>

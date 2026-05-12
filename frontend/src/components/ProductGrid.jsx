@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
 import api from '../api/axios';
+import toast from 'react-hot-toast'; // 🚨 UPGRADE: Swiggy-style silent toasts
 
 const ProductGrid = () => {
   const { storeStatus, socket } = useStore();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // 🚨 PRODUCTION FIX: Swiggy-Level Pagination State
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
@@ -20,10 +20,21 @@ const ProductGrid = () => {
 
   const [weightModalProduct, setWeightModalProduct] = useState(null);
   const [customWeight, setCustomWeight] = useState('');
+  
+  // 🚨 UPGRADE: Cart animation state
+  const [cartBounce, setCartBounce] = useState(false);
 
   const { addToCart, cartItems, updateQuantity, removeFromCart, cartTotal, setIsCartOpen } = useCart();
 
-  // 🚨 PRODUCTION FIX: Fetching with Page and Limit
+  // 🚨 UPGRADE: Trigger bounce animation when cart changes
+  useEffect(() => {
+    if (cartItems.length > 0) {
+      setCartBounce(true);
+      const timer = setTimeout(() => setCartBounce(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [cartItems.length, cartTotal]);
+
   const fetchCatalog = useCallback(async (pageNum = 1, shouldAppend = false) => {
     try {
       if (pageNum === 1 && !shouldAppend) setLoading(true);
@@ -42,8 +53,6 @@ const ProductGrid = () => {
 
   useEffect(() => {
     fetchCatalog(1, false);
-
-    // If socket exists, listen for store updates
     if (socket) {
       socket.on('storeUpdated', () => fetchCatalog(1, false));
     }
@@ -63,15 +72,19 @@ const ProductGrid = () => {
   };
 
   const handleAddClick = (product, appStock) => {
-    if (product.isSoldByWeight) setWeightModalProduct({ ...product, appStock });
-    else addToCart(product, 1, appStock); 
+    if (product.isSoldByWeight) {
+      setWeightModalProduct({ ...product, appStock });
+    } else {
+      addToCart(product, 1, appStock); 
+      // Silent add - relies purely on the cart banner bouncing
+    }
   };
 
   const confirmWeightAdd = (weight) => {
     if (weightModalProduct) {
       const requestedWeight = Number(weight);
       if (requestedWeight > weightModalProduct.appStock) {
-        alert(`⚠️ Cannot add ${requestedWeight}kg. We only have ${weightModalProduct.appStock}kg available in stock!`);
+        toast.error(`Only ${weightModalProduct.appStock}kg left in stock!`); // 🚨 Clean toast
         return; 
       }
       addToCart(weightModalProduct, requestedWeight, weightModalProduct.appStock);
@@ -86,20 +99,17 @@ const ProductGrid = () => {
       await api.post('/store/requests', { itemName: searchQuery });
       setRequestedItems([...requestedItems, searchQuery]);
       setSearchQuery('');
+      toast.success('Request sent to store owner!');
     } catch (e) { }
   };
 
-  // 🚨 THE FIX: Actually send the "Notify" request to the database!
   const handleNotifyMe = async (product) => {
     try {
-      // Send the request to your admin dashboard
       await api.post('/store/requests', { itemName: product.name });
-      
-      // Update UI so the user sees "Will Notify!"
       setNotifiedItems([...notifiedItems, product.id]);
+      toast.success('We will notify you when this arrives!', { icon: '🔔' }); // 🚨 Clean toast
     } catch (error) {
-      console.error("Failed to request notification", error);
-      alert("Failed to setup notification. Please try again.");
+      toast.error("Failed to setup notification.");
     }
   };
 
@@ -217,7 +227,6 @@ const ProductGrid = () => {
                     </div>
 
                     {isOutOfStock ? (
-                      // 🚨 THE FIX: If there is an ETA, lock the button and show the timeline!
                       product.restockEta ? (
                          <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-1.5 rounded-xl text-center shadow-sm w-full md:w-auto">
                             <span className="text-[9px] font-black uppercase tracking-widest block mb-0.5">Expected Restock</span>
@@ -253,9 +262,10 @@ const ProductGrid = () => {
         </div>
       )}
 
+      {/* 🚨 UPGRADE: The Bouncing Swiggy Cart Banner */}
       {cartItems.length > 0 && storeStatus?.isOpen && (
-        <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-8 md:w-96 z-40 animate-slideUp">
-          <div onClick={() => setIsCartOpen(true)} className="bg-green-600 text-white rounded-2xl p-4 shadow-2xl shadow-green-600/30 flex items-center justify-between cursor-pointer hover:bg-green-700 transition-all border-2 border-green-500 transform hover:-translate-y-1 active:scale-95 group">
+        <div className={`fixed bottom-6 left-4 right-4 md:left-auto md:right-8 md:w-96 z-40 transition-transform duration-300 ${cartBounce ? 'scale-105' : 'scale-100'} animate-slideUp`}>
+          <div onClick={() => setIsCartOpen(true)} className={`bg-green-600 text-white rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-green-700 transition-all border-2 border-green-500 transform group ${cartBounce ? 'shadow-2xl shadow-green-500/60' : 'shadow-xl shadow-green-600/30'}`}>
             <div className="flex flex-col">
               <span className="text-[10px] font-black text-green-200 uppercase tracking-widest">{cartItems.length} Items Added</span>
               <span className="text-2xl font-black tracking-tight">₹{cartTotal}</span>

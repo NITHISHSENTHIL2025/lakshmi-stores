@@ -20,7 +20,6 @@ export const CartProvider = ({ children }) => {
   }, [cartItems]);
 
   const addToCart = (product, quantity = 1, maxStock = 99) => {
-    // 🚨 PRODUCTION FIX: Using Boolean Flag instead of string matching
     const qty = product.isSoldByWeight ? Number(quantity) : Math.max(1, Math.round(quantity));
 
     setCartItems((prev) => {
@@ -33,7 +32,9 @@ export const CartProvider = ({ children }) => {
       }
       return [...prev, { ...product, quantity: Math.min(qty, maxStock), maxStock }];
     });
-    setIsCartOpen(true);
+    
+    // 🚨 THE FIX: Removed setIsCartOpen(true) from here. 
+    // Now the side-cart will stay hidden, and the user will just see the bouncing green Swiggy banner!
   };
 
   const removeFromCart = (productId) => {
@@ -44,7 +45,6 @@ export const CartProvider = ({ children }) => {
     const itemToUpdate = cartItems.find(i => i.id === productId);
     if (!itemToUpdate) return;
 
-    // 🚨 PRODUCTION FIX: Using Boolean Flag
     const qty = itemToUpdate.isSoldByWeight ? Number(newQuantity) : Math.round(newQuantity);
 
     if (qty <= 0) return removeFromCart(productId);
@@ -52,7 +52,6 @@ export const CartProvider = ({ children }) => {
     setCartItems((prev) =>
       prev.map((item) => {
         if (item.id === productId) {
-          // 🚨 PRODUCTION FIX: Using ?? instead of || so 0 stock doesn't revert to 99!
           const limit = item.maxStock ?? 99;
           return { ...item, quantity: Math.min(qty, limit) };
         }

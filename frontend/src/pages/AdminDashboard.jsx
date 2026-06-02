@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import AdminProductManager from '../components/AdminProductManager';
+import AdminSupportInbox from '../components/AdminSupportInbox';
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
 import toast from 'react-hot-toast'; 
@@ -26,6 +27,7 @@ const AdminDashboard = () => {
   const [storeStatus, setStoreStatus] = useState({ isOpen: true, closingWarningActive: false });
   const [closingError, setClosingError] = useState(''); 
   const [customerRequests, setCustomerRequests] = useState([]);
+  const [supportNeedCount, setSupportNeedCount] = useState(0);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [handoverModal, setHandoverModal] = useState({ isOpen: false, order: null, step: 'pin', pinInput: '', cashInput: '', change: 0, error: '' });
   
@@ -39,7 +41,7 @@ const AdminDashboard = () => {
   const [customerDetailsModal, setCustomerDetailsModal] = useState(null);
 
   const prevOrderCount = useRef(0);
-  const navigate = useNavigate();
+  const prevSupportNeedCount = useRef(0);
 
   useEffect(() => {
     audioRef.current = audioEnabled;
@@ -61,11 +63,13 @@ const AdminDashboard = () => {
       for (let i = 0; i < 6; i++) { osc.frequency.setValueAtTime(800, now + (i * 0.5)); osc.frequency.linearRampToValueAtTime(500, now + (i * 0.5) + 0.25); }
       gainNode.gain.setValueAtTime(0, now); gainNode.gain.linearRampToValueAtTime(0.3, now + 0.1); gainNode.gain.setValueAtTime(0.3, now + 2.8); gainNode.gain.linearRampToValueAtTime(0, now + 3.0); 
       osc.connect(gainNode); gainNode.connect(audioCtx.destination); osc.start(now); osc.stop(now + 3.0);
-    } catch (e) { }
+    } catch {
+      setSupportNeedCount(0);
+    }
   };
 
   useEffect(() => {
-    fetchOrders(); fetchProducts(); fetchStoreStatus(); fetchRequests();
+    fetchOrders(); fetchProducts(); fetchStoreStatus(); fetchRequests(); fetchSupportCount();
 
     socket.on('connect', () => console.log('🟢 Connected to Live Store Feed'));
     
@@ -75,9 +79,14 @@ const AdminDashboard = () => {
       fetchProducts();
     });
 
+    socket.on('supportUpdated', () => {
+      fetchSupportCount(true);
+    });
+
     return () => {
       socket.off('connect');
       socket.off('storeUpdated');
+      socket.off('supportUpdated');
     };
   }, []); 
 
@@ -88,6 +97,15 @@ const AdminDashboard = () => {
 
   const fetchStoreStatus = async () => { try { const res = await api.get('/store/status'); setStoreStatus(res.data); } catch (e) { } };
   const fetchRequests = async () => { try { const res = await api.get('/store/requests'); setCustomerRequests(res.data.data); } catch (e) { } };
+  const fetchSupportCount = async (isBackgroundSync = false) => {
+    try {
+      const res = await api.get('/support/threads?status=active');
+      const nextCount = (res.data.data || []).filter(thread => thread.status === 'needs_admin').length;
+      if (isBackgroundSync && nextCount > prevSupportNeedCount.current && prevSupportNeedCount.current !== 0) playAlarm();
+      prevSupportNeedCount.current = nextCount;
+      setSupportNeedCount(nextCount);
+    } catch (e) { }
+  };
   
   const toggleShutter = async () => { 
     setClosingError('');
@@ -533,6 +551,12 @@ const AdminDashboard = () => {
           )}
         </div>
         
+        <div className="px-6 pt-6">
+          <button onClick={() => setActiveView('support')} className={navLinkClass('support')}>
+            <span className="flex items-center gap-4 text-lg"><span>AI</span> Support</span>
+            {supportNeedCount > 0 && <span className="bg-red-500 text-white text-xs px-2.5 py-1 rounded-full">{supportNeedCount}</span>}
+          </button>
+        </div>
         <nav className="flex-1 p-6 space-y-3 mt-2">
           <button onClick={() => setActiveView('live')} className={navLinkClass('live')}><span className="flex items-center gap-4 text-lg"><span>⚡</span> Pack Orders</span>{activeOrders.length > 0 && <span className="bg-white text-gray-900 text-xs px-2.5 py-1 rounded-full">{activeOrders.length}</span>}</button>
           <button onClick={() => setActiveView('pos')} className={navLinkClass('pos')}><span className="flex items-center gap-4 text-lg"><span>🏪</span> Quick POS</span></button>
@@ -549,6 +573,10 @@ const AdminDashboard = () => {
       </aside>
 
       <main className="flex-1 p-4 md:p-10 h-screen overflow-y-auto relative bg-gray-50/50">
+        {activeView === 'support' && (
+          <AdminSupportInbox socket={socket} onCountChange={setSupportNeedCount} />
+        )}
+
         {/* ACTIVE ORDERS */}
         {activeView === 'live' && (
           <div className="anim-slide-up">

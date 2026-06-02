@@ -3,6 +3,11 @@ const Product = require('./Product');
 const User = require('./User');
 const OrderItem = require('./OrderItem');
 const Session = require('./Session');
+const Notification = require('./Notification');
+const StoreSetting = require('./StoreSetting');
+const ItemRequest = require('./ItemRequest');
+const SupportThread = require('./SupportThread');
+const SupportMessage = require('./SupportMessage');
 
 // Order → OrderItems (cascade delete)
 Order.hasMany(OrderItem, { foreignKey: 'orderId', as: 'items', onDelete: 'CASCADE' });
@@ -16,4 +21,18 @@ Product.hasMany(OrderItem, { foreignKey: 'productId', constraints: false });
 User.hasMany(Order, { foreignKey: 'userId', constraints: false });
 Order.belongsTo(User, { foreignKey: 'userId', constraints: false });
 
-module.exports = { Order, Product, User, OrderItem, Session };
+SupportThread.hasMany(SupportMessage, { foreignKey: 'threadId', as: 'messages', onDelete: 'CASCADE' });
+SupportMessage.belongsTo(SupportThread, { foreignKey: 'threadId' });
+
+module.exports = {
+  Order,
+  Product,
+  User,
+  OrderItem,
+  Session,
+  Notification,
+  StoreSetting,
+  ItemRequest,
+  SupportThread,
+  SupportMessage
+};

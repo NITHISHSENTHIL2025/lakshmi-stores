@@ -42,6 +42,7 @@ const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const storeRoutes = require('./routes/storeRoutes');
 const userRoutes = require('./routes/userRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 
 const errorHandler = require('./middlewares/errorHandler');
 
@@ -137,6 +138,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/store', storeRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 
 app.use(errorHandler);

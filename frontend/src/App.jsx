@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import NotificationBell from './components/NotificationBell';
+import SmartAssistant from './components/SmartAssistant';
 
 // API & Contexts
 import { StoreProvider, useStore } from './context/StoreContext';
@@ -133,6 +134,7 @@ const CustomerLayout = ({ children }) => {
       <main className="flex-grow max-w-7xl mx-auto w-full p-4 md:mt-6">
         {children}
       </main>
+      <SmartAssistant />
       <BottomNav />
     </div>
   );

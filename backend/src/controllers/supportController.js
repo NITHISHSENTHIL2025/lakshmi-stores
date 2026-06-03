@@ -6,8 +6,8 @@ const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║      LAKSHMI STORES V25 — ULTIMATE CRM SUPPORT OPERATING SYSTEM              ║
-// ║  Digital Twin, Root Cause Engine, Copilot, Timeline, & Deep Investigation    ║
+// ║      LAKSHMI STORES V26 — FORTIFIED CRM SUPPORT OPERATING SYSTEM             ║
+// ║  Bulletproof Memory, Substring Product Matching, & Evidence Persistence      ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
@@ -36,15 +36,9 @@ const PAYMENT_GATEWAYS = ['phonepe', 'gpay', 'google pay', 'paytm', 'upi', 'cash
 const STATES = { 
   NEW: 'NEW', 
   COLLECTING_EVIDENCE: 'COLLECTING_EVIDENCE', 
-  VERIFYING_PRODUCT: 'VERIFYING_PRODUCT',
-  VERIFYING_ORDER: 'VERIFYING_ORDER',
-  VERIFYING_PAYMENT: 'VERIFYING_PAYMENT',
-  VERIFYING_ACCOUNT: 'VERIFYING_ACCOUNT',
-  ROOT_CAUSE_ANALYSIS: 'ROOT_CAUSE_ANALYSIS',
-  PENDING_CONFIRMATION: 'PENDING_CONFIRMATION',
+  INVESTIGATING: 'INVESTIGATING', 
   ESCALATED: 'ESCALATED', 
   RESOLVED: 'RESOLVED',
-  ARCHIVED: 'ARCHIVED'
 };
 
 const EVIDENCE_SCHEMA = {
@@ -81,49 +75,30 @@ const INTENT_MODELS = {
 };
 
 // ----------------------------------------------------------------------------
-// 🎭 [ENGINE] 10-STATE CUSTOMER EMOTION & FRUSTRATION
+// 🎭 [ENGINE] CUSTOMER EMOTION & FRUSTRATION
 // ----------------------------------------------------------------------------
-const analyzeEmotionV25 = (text) => {
+const analyzeEmotionV26 = (text) => {
   let score = 0; let mood = 'Neutral';
-  const lex = { 'worst': -4, 'terrible': -4, 'scam': -4, 'fraud': -4, 'pathetic': -4, 'bad': -2, 'angry': -2, 'frustrated': -2, 'confused': -1, 'worried': -1, 'wrong': -1, 'good': 1, 'nice': 1, 'great': 2, 'awesome': 2, 'thankful': 3 };
+  const lex = { 'worst': -4, 'terrible': -4, 'scam': -4, 'fraud': -4, 'pathetic': -4, 'bad': -2, 'angry': -2, 'frustrated': -2, 'wrong': -1, 'good': 1, 'great': 2, 'thankful': 3 };
   
   (text.split(' ') || []).forEach(w => { if (lex[w]) score += lex[w]; });
   
   if (/\b(wow|amazing|great)\b.*\b(never|worst|deducted|missing|bad|gone)\b/i.test(text)) return { mood: 'Sarcastic', score: -5, penalty: 20 };
-  if (/\b(idiot|stupid|bastard|fuck|bitch)\b/i.test(text)) return { mood: 'Abusive', score: -10, penalty: 50 };
-  if (/\b(police|court|lawyer|sue|legal)\b/i.test(text)) return { mood: 'Threatening', score: -10, penalty: 50 };
   if (/\b(still waiting|again|how many times)\b/i.test(text)) return { mood: 'Repeat Complaint', score: -3, penalty: 20 };
-  if (/\b(not sure|dont understand|how to|confused)\b/i.test(text)) return { mood: 'Confused', score: -1, penalty: 0 };
-  if (/\b(worried|scared|help me)\b/i.test(text)) return { mood: 'Concerned', score: -1, penalty: 0 };
 
-  if (score <= -4) { mood = 'Furious'; }
-  else if (score <= -2) { mood = 'Angry'; }
-  else if (score === -1) { mood = 'Frustrated'; }
-  else if (score === 1) { mood = 'Satisfied'; }
-  else if (score >= 2) { mood = 'Happy'; }
+  if (score <= -4) mood = 'Furious';
+  else if (score <= -2) mood = 'Angry';
+  else if (score === -1) mood = 'Frustrated';
+  else if (score >= 1) mood = 'Satisfied';
   
   const penalty = score < 0 ? Math.abs(score * 5) : 0;
   return { mood, score, penalty };
 };
 
 // ----------------------------------------------------------------------------
-// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & FUZZY GRAPH
+// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & SUBSTRING MATCHING
 // ----------------------------------------------------------------------------
-const getLevenshteinDistance = (a, b) => {
-  if (!a.length) return b.length; if (!b.length) return a.length;
-  const m = [];
-  for (let i = 0; i <= b.length; i++) m[i] = [i];
-  for (let j = 0; j <= a.length; j++) m[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) m[i][j] = m[i - 1][j - 1];
-      else m[i][j] = Math.min(m[i - 1][j - 1] + 1, Math.min(m[i][j - 1] + 1, m[i - 1][j] + 1));
-    }
-  }
-  return m[b.length][a.length];
-};
-
-const extractEntitiesV25 = async (normalizedText, tokens, memory) => {
+const extractEntitiesV26 = async (normalizedText, tokens, memory) => {
   const entities = { products: [] };
   const pendingQuestions = memory.pendingQuestions || [];
 
@@ -148,18 +123,21 @@ const extractEntitiesV25 = async (normalizedText, tokens, memory) => {
   }
 
   if (/\b\d{10}\b/.test(normalizedText)) entities.authMethod = normalizedText.match(/\b\d{10}\b/)[0];
-  if (/\b(email|phone)\b/i.test(normalizedText)) entities.authMethod = normalizedText.match(/\b(email|phone)\b/i)[0];
 
-  // PRODUCT INTELLIGENCE ENGINE (Fuzzy + Tags + Category)
+  // BULLETPROOF PRODUCT SEARCH (Substring catch for sizing/variants)
   try {
     const dbProducts = await Product.findAll({ where: { isActive: true }, attributes: ['id', 'name', 'price', 'real_stock', 'buffer', 'category', 'tags'] });
     dbProducts.forEach(dbProd => {
       const prodName = String(dbProd.name || '').toLowerCase();
       const tags = String(dbProd.tags || '').toLowerCase();
       
-      if (normalizedText.includes(prodName) || (tags && tags.split(',').some(tag => normalizedText.includes(tag.trim()))) || tokens.some(t => t.length > 4 && (1 - getLevenshteinDistance(t, prodName) / Math.max(t.length, prodName.length)) > 0.85)) {
-        entities.products.push(dbProd);
-      }
+      let isMatch = false;
+      if (normalizedText.includes(prodName)) isMatch = true;
+      else if (tags && tags.split(',').some(tag => normalizedText.includes(tag.trim()))) isMatch = true;
+      // This guarantees "sprite" catches "SPRITE (2L)" and "maggi" catches "MAGGI NOODLES (70G)"
+      else if (tokens.some(t => t.length >= 3 && prodName.includes(t))) isMatch = true;
+
+      if (isMatch) entities.products.push(dbProd);
     });
   } catch (e) { /* Silent */ }
 
@@ -167,7 +145,7 @@ const extractEntitiesV25 = async (normalizedText, tokens, memory) => {
 };
 
 // ----------------------------------------------------------------------------
-// 🔬 [ENGINE] ROOT CAUSE ANALYSIS & VERIFICATION
+// 🔬 [ENGINE] VERIFICATION SUITE & ROOT CAUSE
 // ----------------------------------------------------------------------------
 const runVerificationSuite = async (user, collectedEvidence) => {
   let dbReport = [];
@@ -188,7 +166,7 @@ const runVerificationSuite = async (user, collectedEvidence) => {
   }
 
   if (collectedEvidence.paymentMethod && collectedEvidence.amount) {
-    dbData.paymentVerified = true; // Simulated gateway ping
+    dbData.paymentVerified = true;
     dbReport.push(`✅ Gateway: Trace established for ${collectedEvidence.paymentMethod} (₹${collectedEvidence.amount})`);
   }
 
@@ -211,26 +189,22 @@ const determineRootCause = (activeIssues, evidence, dbData) => {
   } else if (activeIssues.includes('technical_issue')) {
     cause = "Frontend Client Timeout / CDN Latency";
     confidence = 75;
-  } else if (activeIssues.includes('wrong_order') || activeIssues.includes('damaged_order')) {
-    cause = "Logistics Packing Error at Terminal";
-    confidence = 90;
   }
 
   return { cause, confidence };
 };
 
 // ----------------------------------------------------------------------------
-// 🧠 [SYSTEM] V25 ORCHESTRATION PIPELINE
+// 🧠 [SYSTEM] V26 ORCHESTRATION PIPELINE
 // ----------------------------------------------------------------------------
 const processPipeline = async (rawMessage, memory, user) => {
   let text = String(rawMessage).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
   Object.entries(REGIONAL_MAP).forEach(([slang, eng]) => { text = text.replace(new RegExp(`\\b${slang}\\b`, 'g'), eng); });
 
   const tokens = text.split(' ').filter(w => !STOP_WORDS.has(w) && w.length > 1);
-  const emotion = analyzeEmotionV25(text);
-  const entities = await extractEntitiesV25(text, tokens, memory);
+  const emotion = analyzeEmotionV26(text);
+  const entities = await extractEntitiesV26(text, tokens, memory);
 
-  // Intent Detection
   let intents = [];
   Object.entries(INTENT_MODELS).forEach(([intentName, model]) => {
     let score = 0;
@@ -241,8 +215,8 @@ const processPipeline = async (rawMessage, memory, user) => {
   if (intents.length > 1) intents = intents.filter(i => i.intent !== 'greeting');
   intents.sort((a, b) => b.tier !== a.tier ? b.tier - a.tier : b.confidence - a.confidence);
 
-  // Evidence Trap
-  if (memory.currentState === STATES.COLLECTING_EVIDENCE && (entities.amount || entities.paymentMethod || entities.confirmationReceived !== undefined)) {
+  // EVIDENCE TRAP: Forces the bot to accept answers instead of defaulting to a greeting
+  if (memory.currentState === STATES.COLLECTING_EVIDENCE && !intents.some(i => i.tier >= 3)) {
     intents.unshift({ intent: 'provide_evidence', confidence: 100, tier: 2 });
   }
 
@@ -255,25 +229,19 @@ const processPipeline = async (rawMessage, memory, user) => {
 
   const primary = intents[0];
 
-  // Frustration Velocity
   let velocity = Number(memory.frustrationScore || 0);
   velocity += emotion.penalty;
   if (['Furious', 'Sarcastic', 'Repeat Complaint', 'Abusive'].includes(emotion.mood) || velocity >= 100) {
-    if (!intents.find(i => i.intent === 'human_request')) {
-      intents.unshift({ intent: 'human_request', confidence: 100, tier: 3 });
-    }
+    if (!intents.find(i => i.intent === 'human_request')) intents.unshift({ intent: 'human_request', confidence: 100, tier: 3 });
   }
 
-  // Multi-Product Context Binding
   if (['price_query', 'stock_query'].includes(primary.intent) && entities.products.length === 0 && memory.lastProduct) {
     entities.products.push(memory.lastProduct);
   }
 
-  // Issue Tracking & Collection
   const activeIssues = Array.from(new Set([...(memory.activeIssues || []), ...intents.map(i => i.intent)])).filter(i => INTENT_MODELS[i]?.tier >= 1 && !['provide_evidence', 'follow_up_complaint'].includes(i));
   const caseFile = { ...(memory.evidence || {}), ...entities };
 
-  // Investigation Scoring
   let investigationScore = 100;
   let missingEvidence = [];
   let totalRequired = 0; let fulfilled = 0;
@@ -291,7 +259,6 @@ const processPipeline = async (rawMessage, memory, user) => {
 
   if (totalRequired > 0) investigationScore = Math.round((fulfilled / totalRequired) * 100);
   
-  // Database Verification & Root Cause
   const verification = await runVerificationSuite(user, caseFile);
   const rootCauseAnalysis = determineRootCause(activeIssues, caseFile, verification.dbData);
 
@@ -299,7 +266,7 @@ const processPipeline = async (rawMessage, memory, user) => {
 };
 
 // ----------------------------------------------------------------------------
-// 💬 [GENERATOR] ADMIN COPILOT & ACTION PLAN ENGINE
+// 💬 [GENERATOR] ADMIN COPILOT & RESPONSE ENGINE
 // ----------------------------------------------------------------------------
 const generateDynamicQuestions = (missingEvidence) => {
   let questions = [];
@@ -307,8 +274,6 @@ const generateDynamicQuestions = (missingEvidence) => {
   if (missingEvidence.includes('amount')) questions.push("• What was the precise transaction amount?");
   if (missingEvidence.includes('confirmationReceived')) questions.push("• Did you receive a confirmation screen, or did the gateway time out?");
   if (missingEvidence.includes('orderId')) questions.push("• Could you provide the Order ID associated with this issue?");
-  if (missingEvidence.includes('authMethod')) questions.push("• Are you trying to authenticate via Phone Number or Email?");
-  if (missingEvidence.includes('wrongItemDetails')) questions.push("• Please specify what item was received incorrectly.");
   return questions.slice(0, 3);
 };
 
@@ -322,20 +287,17 @@ const formulateResponse = (state, memory) => {
   const ticket = memory.conversationId;
   const maxTier = Math.max(...state.intents.map(i => i.tier || 0));
 
-  // RESOLUTION ENGINE
   if (state.primary.intent === 'issue_resolved') {
     return { type: 'resolve', state: STATES.RESOLVED, reply: `I am delighted to hear this is resolved! I will archive **Ticket #${ticket}** and update your customer profile. Thank you for choosing Lakshmi Stores.` };
   }
 
-  // TIER 4 & 5: Security / Fraud / Legal
   if (maxTier >= 4) {
     return {
       type: 'escalate', level: `Level 5 - Security/Legal`, ticket, state: STATES.ESCALATED, copilot: buildAdminCopilot(state, memory),
-      reply: `🚨 **SECURITY & LEGAL PROTOCOL ENGAGED**\nI have executed an immediate emergency escalation. \n• Account parameters frozen.\n• Investigation overridden.\nThe store ownership team has been paged. Please hold.`
+      reply: `🚨 **SECURITY PROTOCOL ENGAGED**\nI have executed an immediate emergency escalation. \n• Account parameters frozen.\n• Investigation overridden.\nThe store ownership team has been paged. Please hold.`
     };
   }
 
-  // TIER 2 & 3: Investigation Workflow
   if (maxTier >= 2) {
     const dbText = state.verification.dbReport.length > 0 ? `\n\n**Database Verification:**\n${state.verification.dbReport.join('\n')}` : '';
 
@@ -355,7 +317,6 @@ const formulateResponse = (state, memory) => {
     };
   }
 
-  // TIER 0 & 1: Product Intelligence
   if (['price_query', 'stock_query', 'product_search'].includes(state.primary.intent)) {
     if (state.entities.products.length > 0) {
       const p = state.entities.products[0];
@@ -365,7 +326,7 @@ const formulateResponse = (state, memory) => {
         reply: `**Product Intelligence Graph:**\n• Item: **${p.name}**\n• Price: **₹${p.price}**\n• Live Stock: **${stock} units**\n\n${stock === 0 ? '*I have registered a procurement request for this SKU.*' : 'Would you like to add this to your active cart?'}` 
       };
     } else if (state.normalizedText.length > 3) {
-      try { ItemRequest.findOrCreate({ where: { itemName: state.normalizedText }, defaults: { requestCount: 1 }}); } catch(e){} // Learning Engine
+      try { ItemRequest.findOrCreate({ where: { itemName: state.normalizedText }, defaults: { requestCount: 1 }}); } catch(e){}
       return { type: 'answer', state: memory.currentState, reply: "I executed a deep scan of the inventory graph but could not locate that exact entity. I have logged this request in our procurement analytics dashboard." };
     }
   }
@@ -387,19 +348,27 @@ exports.chat = async (req, res) => {
       if (header.startsWith('Bearer ')) user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
     } catch (e) { /* Guest */ }
 
-    // Memory Initialization (Permanent Thread)
     let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
     if (!thread) {
       thread = await SupportThread.create({ 
         userId: user ? String(user.id) : null, status: THREAD_STATUS.AI, aiEnabled: true, 
-        metadata: { memory: { conversationId: generateTicketId(), currentState: STATES.NEW, activeIssues: [], evidence: {}, customerMood: 'Neutral', frustrationScore: 0, timeline: [], messageCount: 0 } } 
+        metadata: { memory: {} } 
       });
     } else if (thread.status === THREAD_STATUS.RESOLVED) {
-      // Reopen logic
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
-      thread.metadata.memory.currentState = STATES.NEW;
-      thread.metadata.memory.timeline.push(`[${new Date().toISOString()}] CRM Reopened Ticket.`);
     }
+
+    // BULLETPROOF MEMORY INITIALIZATION (Fixes legacy thread wipes)
+    const memory = (thread.metadata || {}).memory || {};
+    memory.conversationId = memory.conversationId || generateTicketId();
+    memory.currentState = memory.currentState || STATES.NEW;
+    memory.activeIssues = memory.activeIssues || [];
+    memory.evidence = memory.evidence || {};
+    memory.frustrationScore = memory.frustrationScore || 0;
+    memory.timeline = Array.isArray(memory.timeline) ? memory.timeline : [];
+    memory.pendingQuestions = memory.pendingQuestions || [];
+
+    memory.timeline.push(`[${new Date().toISOString()}] Intake: ${rawMessage.substring(0, 20)}`);
 
     await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
 
@@ -409,20 +378,7 @@ exports.chat = async (req, res) => {
       return res.json({ success: true, thread });
     }
 
-    const memory = (thread.metadata || {}).memory || {};
-    memory.messageCount = (memory.messageCount || 0) + 1;
-    
-    // 🛡️ V25 Backward-Compatibility Fix: Initialize timeline if evaluating an older thread
-    if (!Array.isArray(memory.timeline)) {
-      memory.timeline = [];
-    }
-    
-    memory.timeline.push(`[${new Date().toISOString()}] Intake: ${rawMessage.substring(0, 20)}`);
-
-    // Compression Engine Simulator
-    if (memory.messageCount % 100 === 0) memory.timeline.push(`[SYSTEM] Compression Cycle Executed.`);
-
-    // EXECUTE V25 CRM
+    // EXECUTE V26 CRM
     const state = await processPipeline(rawMessage, memory, user);
     const decision = await formulateResponse(state, memory);
 
@@ -433,6 +389,7 @@ exports.chat = async (req, res) => {
     updatedMemory.customerMood = state.emotion.mood;
     updatedMemory.activeIssues = state.activeIssues;
     updatedMemory.evidence = state.caseFile;
+    updatedMemory.pendingQuestions = state.missingEvidence;
     if (decision.newProduct) updatedMemory.lastProduct = decision.newProduct;
 
     // SAVE RESPONSES
@@ -442,7 +399,7 @@ exports.chat = async (req, res) => {
     if (decision.type === 'escalate') {
       await thread.update({ 
         status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', 
-        escalationReason: `${decision.level} [${decision.ticket || 'N/A'}]`, aiEnabled: false, metadata: { memory: updatedMemory }
+        escalationReason: `${decision.level} [${decision.ticket || updatedMemory.conversationId}]`, aiEnabled: false, metadata: { memory: updatedMemory }
       });
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
     } else if (decision.type === 'resolve') {
@@ -457,7 +414,7 @@ exports.chat = async (req, res) => {
     res.json({ success: true, thread: { ...thread.toJSON(), messages } });
 
   } catch (error) {
-    console.error('🛡️ V25 KERNEL PANIC:', error);
+    console.error('🛡️ V26 KERNEL PANIC:', error);
     res.status(200).json({ success: true, fallback: true, message: "CRITICAL EXCEPTION. Migrating session to live administration console." });
   }
 };

@@ -1,14 +1,13 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import NotificationBell from './components/NotificationBell';
-import SmartAssistant from './components/SmartAssistant';
 
 // API & Contexts
 import { StoreProvider, useStore } from './context/StoreContext';
 import { CartProvider, useCart } from './context/CartContext';
 import { AuthProvider, useAuth } from './context/AuthContext'; 
 
-// Components
+// Components & Pages
 import ProductGrid from './components/ProductGrid';
 import CartSlider from './components/CartSlider';
 import Login from './pages/Login';
@@ -19,6 +18,7 @@ import PaymentStatus from './pages/PaymentStatus';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword'; 
 import VerifyOTP from './pages/VerifyOTP';
+import SupportPage from './pages/SupportPage'; // <-- Moved to top properly
 
 const ProtectedAdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -31,10 +31,7 @@ const ProtectedCustomerRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  
-  // 🚨 STRICT ROLE FIX: Instantly bounce Admins out of customer-only pages
   if (user.role === 'admin') return <Navigate to="/admin" replace />;
-  
   return children;
 };
 
@@ -61,6 +58,8 @@ const TopNav = () => {
           {user?.role === 'customer' ? (
             <>
               <Link to="/orders" className="hidden md:flex items-center gap-2 font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-4 py-2 rounded-xl transition-colors"><span>📦</span> Live Orders</Link>
+              {/* Added Support Link in Top Nav */}
+              <Link to="/support" className="hidden md:flex items-center gap-2 font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors"><span>🎧</span> Support</Link>
               <Link to="/account" className="hidden md:flex items-center gap-2 font-bold text-gray-900 hover:text-orange-600 bg-gray-50 px-4 py-2 rounded-xl transition-colors"><span className="text-xl">👤</span> {user.name?.split(' ')[0] || 'User'}</Link>
             </>
           ) : user?.role === 'admin' ? (
@@ -69,7 +68,6 @@ const TopNav = () => {
             <Link to="/login" className="hidden md:block bg-orange-50 text-orange-600 px-5 py-2 rounded-xl font-bold hover:bg-orange-100 transition-all cursor-pointer">Login / Register</Link>
           )}
 
-          {/* 🚨 THE NOTIFICATION BELL ADDED HERE 🚨 */}
           {user?.role === 'customer' && <NotificationBell />}
 
           <button onClick={() => setIsCartOpen(true)} className="relative p-2 text-gray-900 hover:text-orange-600 transition cursor-pointer bg-gray-50 rounded-full h-12 w-12 flex items-center justify-center transform hover:scale-105">
@@ -89,20 +87,20 @@ const BottomNav = () => {
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-40 flex justify-around items-center pb-safe pt-2 px-2 h-16">
-      <Link to="/" className={`flex flex-col items-center gap-1 w-1/3 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
+      <Link to="/" className={`flex flex-col items-center gap-1 w-1/4 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
       
-      {/* 🚨 STRICT ROLE FIX: Hide these tabs entirely from Admins */}
       {user?.role === 'customer' && (
         <>
-          <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/3 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
-          <Link to="/account" className={`flex flex-col items-center gap-1 w-1/3 border-l border-gray-100 ${isActive('/account')}`}><span className="text-xl">👤</span><span className="text-[10px] font-black tracking-wider uppercase">Account</span></Link>
+          <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
+          {/* Added Support Link in Bottom Nav for Mobile */}
+          <Link to="/support" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/support')}`}><span className="text-xl">🎧</span><span className="text-[10px] font-black tracking-wider uppercase">Support</span></Link>
+          <Link to="/account" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/account')}`}><span className="text-xl">👤</span><span className="text-[10px] font-black tracking-wider uppercase">Account</span></Link>
         </>
       )}
     </div>
   );
 };
 
-// 🚨 PRODUCTION FIX: Using Global Store Context
 const CustomerLayout = ({ children }) => {
   const { storeStatus, statusLoading } = useStore();
 
@@ -134,7 +132,9 @@ const CustomerLayout = ({ children }) => {
       <main className="flex-grow max-w-7xl mx-auto w-full p-4 md:mt-6">
         {children}
       </main>
-      <SmartAssistant />
+      
+      {/* 🛑 DELETED <SmartAssistant /> OVERLAY ENTIRELY 🛑 */}
+
       <BottomNav />
     </div>
   );
@@ -162,14 +162,15 @@ function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password/:token" element={<ResetPassword />} /> 
                 <Route path="/verify-otp" element={<VerifyOTP />} />
+                
+                {/* Clean standalone routes using the layout */}
                 <Route path="/payment-status" element={<CustomerLayout><PaymentStatus /></CustomerLayout>} />
                 <Route path="/" element={<CustomerLayout><ProductGrid /></CustomerLayout>} />
                 <Route path="/account" element={<ProtectedCustomerRoute><CustomerLayout><MyAccount /></CustomerLayout></ProtectedCustomerRoute>} />
                 <Route path="/orders" element={<ProtectedCustomerRoute><CustomerLayout><MyOrders /></CustomerLayout></ProtectedCustomerRoute>} />
-                // Example React Router implementation
-import SupportPage from './pages/SupportPage';
-
-<Route path="/support" element={<SupportPage />} />
+                
+                {/* The New Standalone Support Page */}
+                <Route path="/support" element={<CustomerLayout><SupportPage /></CustomerLayout>} />
               </Routes>
             </div>
           </CartProvider>

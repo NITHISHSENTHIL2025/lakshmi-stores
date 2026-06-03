@@ -1,11 +1,9 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-// ...
-
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
 
-// Initialize Gemini
+// Initialize Gemini safely
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const THREAD_STATUS = {
@@ -46,7 +44,7 @@ const aiTools = [{
 }];
 
 // ============================================================
-// HELPER FUNCTIONS (Kept from your original logic)
+// HELPER FUNCTIONS 
 // ============================================================
 const getOptionalUser = async (req) => {
   try {
@@ -160,12 +158,27 @@ exports.chat = async (req, res) => {
       - If the user is hostile, demands refunds, says an item was missing from their order, or explicitly wants a human, invoke 'escalate_to_admin' immediately.
     `;
 
-    // 🚨 3. Chat History Formatting
+    // 🚨 3. Chat History Formatting (THE FIX IS HERE)
     const rawHistory = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']], limit: 20 });
-    const contents = rawHistory.map(msg => ({
-      role: msg.senderType === 'customer' ? 'user' : 'model',
-      parts: [{ text: msg.body }]
-    }));
+    
+    const contents = [];
+    rawHistory.forEach(msg => {
+      // Map admin and AI to 'model', customer to 'user'
+      const role = msg.senderType === 'customer' ? 'user' : 'model';
+      
+      // Gemini CRASHES if two 'user' or two 'model' messages are sent back-to-back.
+      // We must merge consecutive messages from the same role.
+      if (contents.length > 0 && contents[contents.length - 1].role === role) {
+        contents[contents.length - 1].parts[0].text += `\n${msg.body}`;
+      } else {
+        contents.push({ role, parts: [{ text: msg.body }] });
+      }
+    });
+
+    // Gemini strictly requires the first message to be from the 'user'
+    if (contents.length > 0 && contents[0].role !== 'user') {
+      contents.shift();
+    }
 
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction, tools: aiTools });
     let result = await model.generateContent({ contents });
@@ -194,7 +207,6 @@ exports.chat = async (req, res) => {
           });
         }
 
-        // Pass data back to Gemini to format a friendly response
         const toolResult = await model.generateContent({
           contents: [
             ...contents,
@@ -233,7 +245,7 @@ exports.chat = async (req, res) => {
 };
 
 // ============================================================
-// ADMIN ROUTES (Kept identical to preserve React UI)
+// ADMIN ROUTES
 // ============================================================
 exports.getPublicThread = async (req, res) => {
   try {

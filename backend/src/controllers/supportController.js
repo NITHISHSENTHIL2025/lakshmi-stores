@@ -163,3 +163,26 @@ exports.chat = async (req, res) => {
     });
   }
 };
+const getOptionalUser = async (req) => {
+  try {
+    return req.user || null;
+  } catch {
+    return null;
+  }
+};
+
+exports.getPublicThread = async (req, res) => {
+  res.json({ success: true, message: 'getPublicThread working' });
+};
+
+exports.getThreads = async (req, res) => {
+  res.json({ success: true, threads: [] });
+};
+
+exports.adminReply = async (req, res) => {
+  res.json({ success: true, message: 'adminReply working' });
+};
+
+exports.resolveThread = async (req, res) => {
+  res.json({ success: true, message: 'resolveThread working' });
+};

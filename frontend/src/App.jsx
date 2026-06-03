@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import NotificationBell from './components/NotificationBell';
-import SupportPage from './pages/SupportPage';
+
 // API & Contexts
 import { StoreProvider, useStore } from './context/StoreContext';
 import { CartProvider, useCart } from './context/CartContext';
@@ -18,7 +18,7 @@ import PaymentStatus from './pages/PaymentStatus';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword'; 
 import VerifyOTP from './pages/VerifyOTP';
-import SupportPage from './pages/SupportPage'; // <-- Moved to top properly
+import SupportPage from './pages/SupportPage'; // <-- Imported perfectly ONCE
 
 const ProtectedAdminRoute = ({ children }) => {
   const { user, loading } = useAuth();

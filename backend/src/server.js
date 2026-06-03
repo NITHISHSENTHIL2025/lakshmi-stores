@@ -114,7 +114,8 @@ app.use(cors({
 const paymentController = require('./controllers/paymentController');
 app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), paymentController.cashfreeWebhook);
 
-app.use(express.json({ limit: '10kb' })); 
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 // ============================================================

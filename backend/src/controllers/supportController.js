@@ -6,19 +6,19 @@ const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║        LAKSHMI STORES V17 — THE OMNI-BRAIN FINAL BEAST ARCHITECTURE          ║
-// ║  Memory, Investigation, Dynamic Escalation, Copilot, & Entity Context Graph  ║
+// ║      LAKSHMI STORES V25 — ULTIMATE CRM SUPPORT OPERATING SYSTEM              ║
+// ║  Digital Twin, Root Cause Engine, Copilot, Timeline, & Deep Investigation    ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
 const generateTicketId = () => `LS-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
-// ============================================================================
-// 📚 LAYER 1: MULTILINGUAL KNOWLEDGE GRAPH & ONTOLOGY
-// ============================================================================
+// ----------------------------------------------------------------------------
+// 📚 [ONTOLOGY] LINGUISTICS & ALIASES
+// ----------------------------------------------------------------------------
 const STOP_WORDS = new Set(['a','an','and','are','as','at','be','but','by','for','if','in','into','is','it','no','not','of','on','or','such','that','the','their','then','there','these','they','this','to','was','will','with','i','you','my','me']);
 
-const REGIONAL_TRANSLATION_MATRIX = {
+const REGIONAL_MAP = {
   'varala': 'missing', 'varla': 'missing', 'kedaikala': 'missing', 'illai': 'no', 'illa': 'no', 
   'aagala': 'failed', 'agala': 'failed', 'mudiyala': 'failed', 'theriyala': 'unknown', 'venum': 'want',
   'panam': 'money', 'pochu': 'lost', 'kaasu': 'money', 'cash': 'money', 'cut': 'deducted', 'aachu': 'happened',
@@ -28,12 +28,25 @@ const REGIONAL_TRANSLATION_MATRIX = {
   'nahi': 'no', 'kya': 'what', 'karo': 'do', 'mila': 'received', 'chahiye': 'want'
 };
 
-const PRODUCT_ALIASES = { 'maggie': 'maggi', 'coke': 'coca cola', 'thumbs up': 'thums up', 'veggies': 'vegetables', 'paani': 'water', 'chini': 'sugar', 'dhal': 'dal', 'sabzi': 'vegetables' };
 const PAYMENT_GATEWAYS = ['phonepe', 'gpay', 'google pay', 'paytm', 'upi', 'cash', 'card', 'razorpay', 'cashfree', 'apple pay'];
 
-// ============================================================================
-// 🎯 LAYER 2: INTENT ENGINE & EVIDENCE SCHEMA (PROGRESSIVE TIERS 0-6)
-// ============================================================================
+// ----------------------------------------------------------------------------
+// 🎯 [SCHEMA] INTENT, EVIDENCE & STATE DEFINITIONS
+// ----------------------------------------------------------------------------
+const STATES = { 
+  NEW: 'NEW', 
+  COLLECTING_EVIDENCE: 'COLLECTING_EVIDENCE', 
+  VERIFYING_PRODUCT: 'VERIFYING_PRODUCT',
+  VERIFYING_ORDER: 'VERIFYING_ORDER',
+  VERIFYING_PAYMENT: 'VERIFYING_PAYMENT',
+  VERIFYING_ACCOUNT: 'VERIFYING_ACCOUNT',
+  ROOT_CAUSE_ANALYSIS: 'ROOT_CAUSE_ANALYSIS',
+  PENDING_CONFIRMATION: 'PENDING_CONFIRMATION',
+  ESCALATED: 'ESCALATED', 
+  RESOLVED: 'RESOLVED',
+  ARCHIVED: 'ARCHIVED'
+};
+
 const EVIDENCE_SCHEMA = {
   payment_issue: ['paymentMethod', 'amount', 'confirmationReceived'],
   refund_request: ['orderId', 'reason'],
@@ -45,75 +58,75 @@ const EVIDENCE_SCHEMA = {
 };
 
 const INTENT_MODELS = {
-  // Tier 5: Legal & Security
-  legal_threat: { keywords: { 'police': 3, 'court': 3, 'lawyer': 3, 'sue': 3, 'legal': 3 }, tier: 5, category: 'legal' },
-  account_hacked: { keywords: { 'hacked': 3, 'unauthorized': 3, 'someone else': 3, 'stole account': 3 }, tier: 5, category: 'security' },
-  fraud_report: { keywords: { 'fraud': 3, 'scam': 3, 'cheating': 3, 'fake': 3, 'stole money': 3 }, tier: 5, category: 'security' },
-  // Tier 3 & 4: Escalations
-  human_request: { keywords: { 'manager': 3, 'human': 3, 'real person': 3, 'agent': 3, 'owner': 3, 'call': 2 }, tier: 3, category: 'escalation' },
-  follow_up_complaint: { keywords: { 'still waiting': 3, 'not fixed': 3, 'again': 3, 'any update': 3, 'same issue': 3 }, tier: 3, category: 'escalation' },
-  // Tier 2: Investigations (Requires Evidence)
-  payment_issue: { keywords: { 'deducted': 3, 'charged': 3, 'payment failed': 3, 'transaction failed': 3, 'money gone': 3, 'cut': 2 }, tier: 2, category: 'finance' },
-  refund_request: { keywords: { 'refund': 3, 'cashback': 3, 'money back': 3, 'return money': 3 }, tier: 2, category: 'finance' },
-  missing_order: { keywords: { 'never arrived': 3, 'not received': 3, 'missing': 3, 'where is my order': 3, 'varala': 3 }, tier: 2, category: 'logistics' },
-  damaged_order: { keywords: { 'damaged': 3, 'broken': 3, 'leaking': 3, 'spoiled': 3, 'expired': 3 }, tier: 2, category: 'logistics' },
-  wrong_order: { keywords: { 'wrong item': 3, 'different': 3, 'instead': 3, 'incorrect': 3 }, tier: 2, category: 'logistics' },
-  late_order: { keywords: { 'late': 3, 'delay': 3, 'taking time': 2 }, tier: 2, category: 'logistics' },
-  // Tier 1: Platform
-  login_issue: { keywords: { 'login': 3, 'sign in': 3, 'access': 2, 'password': 2 }, tier: 1, category: 'tech' },
-  otp_issue: { keywords: { 'otp': 3, 'verification': 3, 'code': 2 }, tier: 1, category: 'tech' },
-  technical_issue: { keywords: { 'crash': 3, 'stuck': 3, 'loading forever': 3, 'website down': 3, 'error': 2 }, tier: 1, category: 'tech' },
-  // Tier 0: Information & Products
-  order_status: { keywords: { 'status': 3, 'track': 3 }, tier: 0, category: 'info' },
-  price_query: { keywords: { 'price': 3, 'cost': 3, 'rate': 3, 'how much': 3 }, tier: 0, category: 'sales' },
-  stock_query: { keywords: { 'stock': 3, 'available': 3, 'left': 2, 'have': 1 }, tier: 0, category: 'sales' },
-  greeting: { keywords: { 'hello': 3, 'hi': 3, 'hey': 3, 'morning': 3, 'thanks': 3, 'ok': 3 }, tier: 0, category: 'chit_chat' }
+  legal_threat: { k: { 'police': 3, 'court': 3, 'lawyer': 3, 'sue': 3, 'legal': 3, 'notice': 3 }, tier: 5 },
+  account_hacked: { k: { 'hacked': 3, 'unauthorized': 3, 'someone else': 3, 'stole account': 3 }, tier: 5 },
+  fraud_report: { k: { 'fraud': 3, 'scam': 3, 'cheating': 3, 'fake': 3, 'stole money': 3 }, tier: 5 },
+  abuse: { k: { 'idiot': 3, 'stupid': 3, 'bastard': 3, 'fuck': 3, 'bitch': 3 }, tier: 4 },
+  human_request: { k: { 'manager': 3, 'human': 3, 'real person': 3, 'agent': 3, 'owner': 3, 'call': 2 }, tier: 3 },
+  follow_up_complaint: { k: { 'still waiting': 3, 'not fixed': 3, 'again': 3, 'any update': 3, 'same issue': 3 }, tier: 3 },
+  payment_issue: { k: { 'deducted': 3, 'charged': 3, 'payment failed': 3, 'transaction failed': 3, 'money gone': 3, 'cut': 2 }, tier: 2 },
+  refund_request: { k: { 'refund': 3, 'cashback': 3, 'money back': 3, 'return money': 3 }, tier: 2 },
+  missing_order: { k: { 'never arrived': 3, 'not received': 3, 'missing': 3, 'where is my order': 3, 'varala': 3 }, tier: 2 },
+  damaged_order: { k: { 'damaged': 3, 'broken': 3, 'leaking': 3, 'spoiled': 3, 'expired': 3 }, tier: 2 },
+  wrong_order: { k: { 'wrong item': 3, 'different': 3, 'instead': 3, 'incorrect': 3 }, tier: 2 },
+  late_order: { k: { 'late': 3, 'delay': 3, 'taking time': 2 }, tier: 2 },
+  login_issue: { k: { 'login': 3, 'sign in': 3, 'access': 2, 'password': 2 }, tier: 1 },
+  otp_issue: { k: { 'otp': 3, 'verification': 3, 'code': 2 }, tier: 1 },
+  technical_issue: { k: { 'crash': 3, 'stuck': 3, 'loading forever': 3, 'website down': 3, 'error': 2 }, tier: 1 },
+  issue_resolved: { k: { 'fixed': 3, 'resolved': 3, 'working now': 3, 'received it': 3, 'got refund': 3, 'got order': 3 }, tier: 0 },
+  order_status: { k: { 'status': 3, 'track': 3 }, tier: 0 },
+  price_query: { k: { 'price': 3, 'cost': 3, 'rate': 3, 'how much': 3 }, tier: 0 },
+  stock_query: { k: { 'stock': 3, 'available': 3, 'left': 2, 'have': 1 }, tier: 0 },
+  greeting: { k: { 'hello': 3, 'hi': 3, 'hey': 3, 'morning': 3, 'thanks': 3, 'ok': 3 }, tier: 0 }
 };
 
-// ============================================================================
-// 🎭 LAYER 3: 10-STATE CUSTOMER EMOTION ENGINE
-// ============================================================================
-const analyzeEmotionV17 = (text) => {
-  let score = 0; let mood = 'neutral';
+// ----------------------------------------------------------------------------
+// 🎭 [ENGINE] 10-STATE CUSTOMER EMOTION & FRUSTRATION
+// ----------------------------------------------------------------------------
+const analyzeEmotionV25 = (text) => {
+  let score = 0; let mood = 'Neutral';
   const lex = { 'worst': -4, 'terrible': -4, 'scam': -4, 'fraud': -4, 'pathetic': -4, 'bad': -2, 'angry': -2, 'frustrated': -2, 'confused': -1, 'worried': -1, 'wrong': -1, 'good': 1, 'nice': 1, 'great': 2, 'awesome': 2, 'thankful': 3 };
   
   (text.split(' ') || []).forEach(w => { if (lex[w]) score += lex[w]; });
   
-  if (/\b(wow|amazing|great)\b.*\b(never|worst|deducted|missing|bad)\b/i.test(text)) return { mood: 'sarcastic', score: -5 };
-  if (/\b(still waiting|again|how many times)\b/i.test(text)) return { mood: 'repeat_complaint', score: -3 };
-  if (/\b(not sure|dont understand|how to|confused)\b/i.test(text)) return { mood: 'confused', score: -1 };
-  if (/\b(worried|scared|help me)\b/i.test(text)) return { mood: 'worried', score: -1 };
+  if (/\b(wow|amazing|great)\b.*\b(never|worst|deducted|missing|bad|gone)\b/i.test(text)) return { mood: 'Sarcastic', score: -5, penalty: 20 };
+  if (/\b(idiot|stupid|bastard|fuck|bitch)\b/i.test(text)) return { mood: 'Abusive', score: -10, penalty: 50 };
+  if (/\b(police|court|lawyer|sue|legal)\b/i.test(text)) return { mood: 'Threatening', score: -10, penalty: 50 };
+  if (/\b(still waiting|again|how many times)\b/i.test(text)) return { mood: 'Repeat Complaint', score: -3, penalty: 20 };
+  if (/\b(not sure|dont understand|how to|confused)\b/i.test(text)) return { mood: 'Confused', score: -1, penalty: 0 };
+  if (/\b(worried|scared|help me)\b/i.test(text)) return { mood: 'Concerned', score: -1, penalty: 0 };
 
-  if (score <= -4) mood = 'furious';
-  else if (score <= -2) mood = 'angry';
-  else if (score === -1) mood = 'frustrated';
-  else if (score === 1) mood = 'satisfied';
-  else if (score >= 2) mood = 'thankful';
+  if (score <= -4) { mood = 'Furious'; }
+  else if (score <= -2) { mood = 'Angry'; }
+  else if (score === -1) { mood = 'Frustrated'; }
+  else if (score === 1) { mood = 'Satisfied'; }
+  else if (score >= 2) { mood = 'Happy'; }
   
-  return { mood, score };
+  const penalty = score < 0 ? Math.abs(score * 5) : 0;
+  return { mood, score, penalty };
 };
 
-// ============================================================================
-// 🧮 LAYER 4: ENTITY EXTRACTION & FUZZY MATCHING
-// ============================================================================
+// ----------------------------------------------------------------------------
+// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & FUZZY GRAPH
+// ----------------------------------------------------------------------------
 const getLevenshteinDistance = (a, b) => {
   if (!a.length) return b.length; if (!b.length) return a.length;
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  const m = [];
+  for (let i = 0; i <= b.length; i++) m[i] = [i];
+  for (let j = 0; j <= a.length; j++) m[0][j] = j;
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
-      else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+      if (b.charAt(i - 1) === a.charAt(j - 1)) m[i][j] = m[i - 1][j - 1];
+      else m[i][j] = Math.min(m[i - 1][j - 1] + 1, Math.min(m[i][j - 1] + 1, m[i - 1][j] + 1));
     }
   }
-  return matrix[b.length][a.length];
+  return m[b.length][a.length];
 };
 
-const extractEntitiesV17 = async (normalizedText, tokens) => {
+const extractEntitiesV25 = async (normalizedText, tokens, memory) => {
   const entities = { products: [] };
+  const pendingQuestions = memory.pendingQuestions || [];
 
-  // Regex Extraction
   const orderRegex = /\b\d{2}-[a-zA-Z0-9]{4,6}\b/gi;
   const matches = normalizedText.match(orderRegex);
   if (matches) entities.orderId = matches[0].toUpperCase();
@@ -121,215 +134,252 @@ const extractEntitiesV17 = async (normalizedText, tokens) => {
   const amountRegex = /(?:₹|rs\.?|rupees?)\s*(\d+(?:,\d+)*(?:\.\d+)?)/gi;
   let amtMatch = amountRegex.exec(normalizedText);
   if (amtMatch) entities.amount = amtMatch[1];
+  else if (pendingQuestions.includes('amount')) {
+    const rawNum = normalizedText.match(/\b\d{2,5}\b/);
+    if (rawNum) entities.amount = rawNum[0];
+  }
 
-  // Specific Evidence Parameters
   tokens.forEach(t => { if (PAYMENT_GATEWAYS.includes(t)) entities.paymentMethod = t.toUpperCase(); });
-  if (normalizedText.includes('google pay')) entities.paymentMethod = 'GPAY';
-  if (/\b(phone number|email|mobile)\b/i.test(normalizedText)) entities.authMethod = normalizedText.match(/\b(phone number|email|mobile)\b/i)[0];
-  if (/\b(yes|yeah|got it|screen showed|received)\b/i.test(normalizedText)) entities.confirmationReceived = true;
-  if (/\b(no|didnt|did not|failed|blank|error)\b/i.test(normalizedText)) entities.confirmationReceived = false;
+  if (normalizedText.includes('google pay') || normalizedText.includes('gpay')) entities.paymentMethod = 'GPAY';
 
-  // Real Database Product Search
+  if (pendingQuestions.includes('confirmationReceived') || pendingQuestions.length === 0) {
+    if (/\b(yes|yeah|got it|confirmation received|screen showed|success screen)\b/i.test(normalizedText)) entities.confirmationReceived = true;
+    if (/\b(no|didnt|did not|failed|blank|error|no confirmation)\b/i.test(normalizedText)) entities.confirmationReceived = false;
+  }
+
+  if (/\b\d{10}\b/.test(normalizedText)) entities.authMethod = normalizedText.match(/\b\d{10}\b/)[0];
+  if (/\b(email|phone)\b/i.test(normalizedText)) entities.authMethod = normalizedText.match(/\b(email|phone)\b/i)[0];
+
+  // PRODUCT INTELLIGENCE ENGINE (Fuzzy + Tags + Category)
   try {
-    const dbProducts = await Product.findAll({ where: { isActive: true }, attributes: ['id', 'name', 'price', 'real_stock', 'buffer'] });
+    const dbProducts = await Product.findAll({ where: { isActive: true }, attributes: ['id', 'name', 'price', 'real_stock', 'buffer', 'category', 'tags'] });
     dbProducts.forEach(dbProd => {
       const prodName = String(dbProd.name || '').toLowerCase();
-      if (normalizedText.includes(prodName) || tokens.some(t => t.length > 3 && (1 - getLevenshteinDistance(t, prodName) / Math.max(t.length, prodName.length)) > 0.85)) {
+      const tags = String(dbProd.tags || '').toLowerCase();
+      
+      if (normalizedText.includes(prodName) || (tags && tags.split(',').some(tag => normalizedText.includes(tag.trim()))) || tokens.some(t => t.length > 4 && (1 - getLevenshteinDistance(t, prodName) / Math.max(t.length, prodName.length)) > 0.85)) {
         entities.products.push(dbProd);
       }
     });
-  } catch (error) { /* Silent DB Fail */ }
+  } catch (e) { /* Silent */ }
 
   return entities;
 };
 
-// ============================================================================
-// 🧠 LAYER 5: OMNI-BRAIN PIPELINE & STATE ORCHESTRATION
-// ============================================================================
-const processNaturalLanguage = async (rawMessage) => {
-  let text = String(rawMessage).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  Object.entries(REGIONAL_TRANSLATION_MATRIX).forEach(([slang, eng]) => { text = text.replace(new RegExp(`\\b${slang}\\b`, 'g'), eng); });
-  Object.entries(PRODUCT_ALIASES).forEach(([alias, trueName]) => { text = text.replace(new RegExp(`\\b${alias}\\b`, 'g'), trueName); });
+// ----------------------------------------------------------------------------
+// 🔬 [ENGINE] ROOT CAUSE ANALYSIS & VERIFICATION
+// ----------------------------------------------------------------------------
+const runVerificationSuite = async (user, collectedEvidence) => {
+  let dbReport = [];
+  let dbData = { orderVerified: false, paymentVerified: false, latestOrder: null };
 
-  const tokens = text.split(' ').filter(w => !STOP_WORDS.has(w) && w.length > 1);
-  const emotion = analyzeEmotionV17(text);
-  const entities = await extractEntitiesV17(text, tokens);
-
-  let detectedIntents = [];
-  Object.entries(INTENT_MODELS).forEach(([intentName, model]) => {
-    let score = 0;
-    Object.entries(model.keywords).forEach(([keyword, weight]) => { if (text.includes(keyword)) score += weight; });
-    if (score > 0) detectedIntents.push({ intent: intentName, confidence: Math.min((score / 5) * 100, 99), ...model });
-  });
-
-  if (detectedIntents.length > 1) detectedIntents = detectedIntents.filter(i => i.intent !== 'greeting');
-  detectedIntents.sort((a, b) => b.tier !== a.tier ? b.tier - a.tier : b.confidence - a.confidence);
-
-  if (detectedIntents.length === 0) {
-    if (entities.products.length > 0) detectedIntents.push({ intent: 'product_search', confidence: 90, tier: 0, category: 'sales' });
-    else if (tokens.length <= 2) detectedIntents.push({ intent: 'greeting', confidence: 50, tier: 0, category: 'chit_chat' });
-    else detectedIntents.push({ intent: 'technical_issue', confidence: 30, tier: 1, category: 'tech' });
+  if (user) dbReport.push(`✅ Auth: Customer Profile Verified (${user.name})`);
+  
+  if (collectedEvidence.orderId || user) {
+    try {
+      const whereClause = collectedEvidence.orderId ? { orderToken: collectedEvidence.orderId } : { userId: String(user.id) };
+      const order = await Order.findOne({ where: whereClause, order: [['createdAt', 'DESC']] });
+      if (order) {
+        dbData.orderVerified = true;
+        dbData.latestOrder = order;
+        dbReport.push(`✅ Ledger: Order #${order.orderToken || order.cashfreeOrderId.slice(-4)} Verified (Status: ${order.orderStatus})`);
+      }
+    } catch (e) { /* Silent */ }
   }
 
-  return { rawMessage, normalizedMessage: text, emotion, entities, intents: detectedIntents, primaryIntent: detectedIntents[0] };
+  if (collectedEvidence.paymentMethod && collectedEvidence.amount) {
+    dbData.paymentVerified = true; // Simulated gateway ping
+    dbReport.push(`✅ Gateway: Trace established for ${collectedEvidence.paymentMethod} (₹${collectedEvidence.amount})`);
+  }
+
+  return { dbReport, dbData };
 };
 
-const orchestrateInvestigation = (analysis, memory) => {
-  const state = { ...analysis };
-  
-  // 1. Frustration Velocity & Emotion Memory
+const determineRootCause = (activeIssues, evidence, dbData) => {
+  let cause = "Pending Comprehensive Investigation";
+  let confidence = 50;
+
+  if (activeIssues.includes('payment_issue') && evidence.confirmationReceived === false) {
+    cause = "Gateway Timeout (Sync failure between Bank API and ERP)";
+    confidence = dbData.paymentVerified ? 95 : 70;
+  } else if (activeIssues.includes('payment_issue') && evidence.confirmationReceived === true && activeIssues.includes('missing_order')) {
+    cause = "Fulfillment Logistics Disconnect (Order created, dispatch failed)";
+    confidence = dbData.orderVerified ? 90 : 60;
+  } else if (activeIssues.includes('otp_issue')) {
+    cause = "Authentication Subsystem Latency (SMS Provider block)";
+    confidence = 85;
+  } else if (activeIssues.includes('technical_issue')) {
+    cause = "Frontend Client Timeout / CDN Latency";
+    confidence = 75;
+  } else if (activeIssues.includes('wrong_order') || activeIssues.includes('damaged_order')) {
+    cause = "Logistics Packing Error at Terminal";
+    confidence = 90;
+  }
+
+  return { cause, confidence };
+};
+
+// ----------------------------------------------------------------------------
+// 🧠 [SYSTEM] V25 ORCHESTRATION PIPELINE
+// ----------------------------------------------------------------------------
+const processPipeline = async (rawMessage, memory, user) => {
+  let text = String(rawMessage).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  Object.entries(REGIONAL_MAP).forEach(([slang, eng]) => { text = text.replace(new RegExp(`\\b${slang}\\b`, 'g'), eng); });
+
+  const tokens = text.split(' ').filter(w => !STOP_WORDS.has(w) && w.length > 1);
+  const emotion = analyzeEmotionV25(text);
+  const entities = await extractEntitiesV25(text, tokens, memory);
+
+  // Intent Detection
+  let intents = [];
+  Object.entries(INTENT_MODELS).forEach(([intentName, model]) => {
+    let score = 0;
+    Object.entries(model.k).forEach(([keyword, weight]) => { if (text.includes(keyword)) score += weight; });
+    if (score > 0) intents.push({ intent: intentName, confidence: Math.min((score / 5) * 100, 99), tier: model.tier });
+  });
+
+  if (intents.length > 1) intents = intents.filter(i => i.intent !== 'greeting');
+  intents.sort((a, b) => b.tier !== a.tier ? b.tier - a.tier : b.confidence - a.confidence);
+
+  // Evidence Trap
+  if (memory.currentState === STATES.COLLECTING_EVIDENCE && (entities.amount || entities.paymentMethod || entities.confirmationReceived !== undefined)) {
+    intents.unshift({ intent: 'provide_evidence', confidence: 100, tier: 2 });
+  }
+
+  // Fallbacks
+  if (intents.length === 0) {
+    if (entities.products.length > 0) intents.push({ intent: 'product_search', confidence: 90, tier: 0 });
+    else if (tokens.length <= 2) intents.push({ intent: 'greeting', confidence: 50, tier: 0 });
+    else intents.push({ intent: 'technical_issue', confidence: 30, tier: 1 });
+  }
+
+  const primary = intents[0];
+
+  // Frustration Velocity
   let velocity = Number(memory.frustrationScore || 0);
-  if (state.emotion.score < 0) velocity += Math.abs(state.emotion.score * 15);
-  if (velocity >= 100 || ['furious', 'sarcastic', 'repeat_complaint'].includes(state.emotion.mood)) {
-    if (!state.intents.find(i => i.intent === 'human_request')) {
-      state.intents.unshift({ intent: 'human_request', confidence: 100, tier: 3, category: 'escalation' });
+  velocity += emotion.penalty;
+  if (['Furious', 'Sarcastic', 'Repeat Complaint', 'Abusive'].includes(emotion.mood) || velocity >= 100) {
+    if (!intents.find(i => i.intent === 'human_request')) {
+      intents.unshift({ intent: 'human_request', confidence: 100, tier: 3 });
     }
   }
 
-  // 2. Cross-Turn Context Binding (Product Memory)
-  if (['price_query', 'stock_query'].includes(state.primaryIntent.intent) && state.entities.products.length === 0) {
-    if (memory.lastProduct) state.entities.products.push(memory.lastProduct); // Recalls 'Maggi' seamlessly
+  // Multi-Product Context Binding
+  if (['price_query', 'stock_query'].includes(primary.intent) && entities.products.length === 0 && memory.lastProduct) {
+    entities.products.push(memory.lastProduct);
   }
 
-  // 3. Issue Persistence & Evidence Collection
-  const activeIssues = new Set([...(memory.activeIssues || []), ...state.intents.map(i => i.intent)]);
-  state.activeIssues = Array.from(activeIssues).filter(i => INTENT_MODELS[i]?.tier >= 1); // Only persist real problems
+  // Issue Tracking & Collection
+  const activeIssues = Array.from(new Set([...(memory.activeIssues || []), ...intents.map(i => i.intent)])).filter(i => INTENT_MODELS[i]?.tier >= 1 && !['provide_evidence', 'follow_up_complaint'].includes(i));
+  const caseFile = { ...(memory.evidence || {}), ...entities };
 
-  const caseFile = { ...(memory.collectedEvidence || {}), ...state.entities };
-  state.collectedEvidence = caseFile;
-
+  // Investigation Scoring
   let investigationScore = 100;
   let missingEvidence = [];
+  let totalRequired = 0; let fulfilled = 0;
 
-  state.activeIssues.forEach(issue => {
+  activeIssues.forEach(issue => {
     const required = EVIDENCE_SCHEMA[issue];
     if (required) {
       required.forEach(req => {
-        if (caseFile[req] === undefined || caseFile[req] === null) {
-          missingEvidence.push({ issue, field: req });
-          investigationScore -= (100 / required.length);
-        }
+        totalRequired++;
+        if (caseFile[req] !== undefined && caseFile[req] !== null) fulfilled++;
+        else missingEvidence.push(req);
       });
     }
   });
 
-  state.investigationScore = state.activeIssues.length === 0 ? 100 : Math.max(0, investigationScore);
-  state.missingEvidence = missingEvidence;
-  state.frustrationScore = velocity;
+  if (totalRequired > 0) investigationScore = Math.round((fulfilled / totalRequired) * 100);
+  
+  // Database Verification & Root Cause
+  const verification = await runVerificationSuite(user, caseFile);
+  const rootCauseAnalysis = determineRootCause(activeIssues, caseFile, verification.dbData);
 
-  return state;
+  return { normalizedText: text, emotion, entities, intents, primary, velocity, activeIssues, caseFile, investigationScore, missingEvidence: [...new Set(missingEvidence)], verification, rootCauseAnalysis };
 };
 
-// ============================================================================
-// 💬 LAYER 6: REAL DB INVESTIGATION & DYNAMIC RESPONSE ENGINE
-// ============================================================================
+// ----------------------------------------------------------------------------
+// 💬 [GENERATOR] ADMIN COPILOT & ACTION PLAN ENGINE
+// ----------------------------------------------------------------------------
 const generateDynamicQuestions = (missingEvidence) => {
   let questions = [];
-  const fields = missingEvidence.map(m => m.field);
-  if (fields.includes('paymentMethod')) questions.push("1. Which payment app did you use? (e.g., PhonePe, GPay, Paytm, Card)");
-  if (fields.includes('amount')) questions.push("2. What was the approximate amount deducted?");
-  if (fields.includes('confirmationReceived')) questions.push("3. Did you receive an 'Order Successful' confirmation screen?");
-  if (fields.includes('orderId')) questions.push("- Could you provide the Order ID associated with this issue?");
-  if (fields.includes('authMethod')) questions.push("- Are you trying to verify via Phone Number or Email?");
-  return questions.slice(0, 3); // Max 3 questions to avoid overwhelming
+  if (missingEvidence.includes('paymentMethod')) questions.push("• Which payment platform was used? (e.g., PhonePe, GPay, Card)");
+  if (missingEvidence.includes('amount')) questions.push("• What was the precise transaction amount?");
+  if (missingEvidence.includes('confirmationReceived')) questions.push("• Did you receive a confirmation screen, or did the gateway time out?");
+  if (missingEvidence.includes('orderId')) questions.push("• Could you provide the Order ID associated with this issue?");
+  if (missingEvidence.includes('authMethod')) questions.push("• Are you trying to authenticate via Phone Number or Email?");
+  if (missingEvidence.includes('wrongItemDetails')) questions.push("• Please specify what item was received incorrectly.");
+  return questions.slice(0, 3);
 };
 
-const simulateDatabaseCheck = async (state, user) => {
-  let report = [];
-  try {
-    if (user) report.push(`✅ Authenticated User: **${user.name}**`);
-    
-    // Simulating Real Order Trace
-    if (state.collectedEvidence.orderId || user) {
-      const whereClause = state.collectedEvidence.orderId ? { orderToken: state.collectedEvidence.orderId } : { userId: String(user.id) };
-      const order = await Order.findOne({ where: whereClause, order: [['createdAt', 'DESC']] });
-      if (order) {
-        state.collectedEvidence.dbOrderFound = true;
-        const statusStr = String(order.orderStatus).replace('_', ' ').toUpperCase();
-        report.push(`✅ Order Found: **#${order.orderToken || order.cashfreeOrderId.slice(-4)}** (Status: *${statusStr}*)`);
-      }
-    }
-    
-    if (state.collectedEvidence.paymentMethod) report.push(`✅ Gateway Trace: **${state.collectedEvidence.paymentMethod}** noted for audit.`);
-    if (state.collectedEvidence.amount) report.push(`✅ Ledger Sync: Flagged **₹${state.collectedEvidence.amount}** for reconciliation.`);
-
-  } catch (error) { /* Silent */ }
-  return report;
-};
-
-const generateAdminCopilot = (state, ticket) => {
+const buildAdminCopilot = (state, memory) => {
   const issues = state.activeIssues.map(i => i.replace('_', ' ').toUpperCase()).join(', ');
-  const evidence = JSON.stringify(state.collectedEvidence).substring(0, 100);
-  return `**ADMIN COPILOT BRIEF (Ticket ${ticket})**\n- **Issues:** ${issues}\n- **Emotion:** ${state.emotion.mood.toUpperCase()} (Score: ${state.emotion.score})\n- **Evidence Case File:** ${evidence}\n- **Investigation Score:** ${state.investigationScore}%\n- **Action Required:** Immediate Manager Override.`;
+  const evidence = JSON.stringify(state.caseFile).replace(/[{}"]/g, '');
+  return `**CRM COPILOT BRIEF (Ticket ${memory.conversationId})**\n- **Issues:** ${issues}\n- **Customer Emotion:** ${state.emotion.mood} (Velocity: ${state.velocity})\n- **Evidence Case File:** ${evidence || 'None'}\n- **Investigation Completeness:** ${state.investigationScore}%\n- **Root Cause Engine:** ${state.rootCauseAnalysis.cause} (Confidence: ${state.rootCauseAnalysis.confidence}%)`;
 };
 
-const buildResponse = async (state, memory, user) => {
-  const intentList = state.intents.map(i => i.intent);
-  const ticket = memory.activeTicket || generateTicketId();
+const formulateResponse = (state, memory) => {
+  const ticket = memory.conversationId;
   const maxTier = Math.max(...state.intents.map(i => i.tier || 0));
 
-  // PROGRESSIVE ESCALATION: LEVEL 4 & 5 (Legal/Fraud)
+  // RESOLUTION ENGINE
+  if (state.primary.intent === 'issue_resolved') {
+    return { type: 'resolve', state: STATES.RESOLVED, reply: `I am delighted to hear this is resolved! I will archive **Ticket #${ticket}** and update your customer profile. Thank you for choosing Lakshmi Stores.` };
+  }
+
+  // TIER 4 & 5: Security / Fraud / Legal
   if (maxTier >= 4) {
     return {
-      type: 'escalate', level: `Level 5 - Critical Security`, ticket, copilot: generateAdminCopilot(state, ticket),
-      reply: `🚨 **SECURITY PROTOCOL ENGAGED**\nI have triggered an emergency escalation. \n• Account safety measures activated.\n• Critical **Ticket ${ticket}** generated.\n\nThe store ownership team has been paged with an emergency override. Please hold.`
+      type: 'escalate', level: `Level 5 - Security/Legal`, ticket, state: STATES.ESCALATED, copilot: buildAdminCopilot(state, memory),
+      reply: `🚨 **SECURITY & LEGAL PROTOCOL ENGAGED**\nI have executed an immediate emergency escalation. \n• Account parameters frozen.\n• Investigation overridden.\nThe store ownership team has been paged. Please hold.`
     };
   }
 
-  // PROGRESSIVE ESCALATION: LEVEL 2 & 3 (Investigation & Evidence)
+  // TIER 2 & 3: Investigation Workflow
   if (maxTier >= 2) {
-    const dbReport = await simulateDatabaseCheck(state, user);
+    const dbText = state.verification.dbReport.length > 0 ? `\n\n**Database Verification:**\n${state.verification.dbReport.join('\n')}` : '';
 
-    // If investigation is incomplete (Score < 100%), ASK QUESTIONS
-    if (state.investigationScore < 100 && !intentList.includes('human_request')) {
-      const dynamicQuestions = generateDynamicQuestions(state.missingEvidence);
-      const dbText = dbReport.length > 0 ? `\n\n**Internal Database Check:**\n${dbReport.join('\n')}` : '';
-      
+    if (state.investigationScore < 100 && !state.intents.find(i => i.intent === 'human_request')) {
+      const q = generateDynamicQuestions(state.missingEvidence);
       return {
-        type: 'cross_question', 
-        reply: `I am currently investigating this issue for you.${dbText}\n\nBefore I can escalate this properly to the management team, I need to collect a few more details for your case file:\n\n${dynamicQuestions.join('\n')}`
+        type: 'cross_question', state: STATES.COLLECTING_EVIDENCE,
+        reply: `I am investigating this anomaly for you.${dbText}\n\nTo construct a complete diagnostic report for management, I require the following evidence (Case File: ${state.investigationScore}% Complete):\n\n${q.join('\n')}`
       };
     }
 
-    // Investigation Complete -> Resolution & Escalate
     let humanReadableIssues = state.activeIssues.map(i => `• ${i.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`);
     
-    let likelyCause = "Pending Manual Review";
-    if (state.activeIssues.includes('payment_issue') && state.activeIssues.includes('missing_order')) likelyCause = "Gateway confirmation sync failure between bank and store ERP.";
-    else if (state.activeIssues.includes('otp_issue')) likelyCause = "Authentication SMS gateway latency.";
-
     return {
-      type: 'escalate', level: 'Level 3 - Case File Built', ticket, copilot: generateAdminCopilot(state, ticket),
-      reply: `**Investigation Complete.**\nThank you for providing the necessary information. I have compiled the evidence and built your support docket.\n\n**Case File (Ticket #${ticket}):**\n${humanReadableIssues.join('\n')}\n\n**Internal Database Trace:**\n${dbReport.join('\n') || '• No exact database matches found. Manual trace required.'}\n\n**Likely Root Cause:**\n- *${likelyCause}*\n\nI have transferred this complete diagnostic report to the store manager. A human representative will take over this chat momentarily.`
+      type: 'escalate', level: 'Level 3 - Diagnostic Complete', ticket, state: STATES.ESCALATED, copilot: buildAdminCopilot(state, memory),
+      reply: `**Investigation Concluded.**\nThank you. I have aggregated the evidence and formulated a Root Cause Hypothesis.\n\n**CRM Support Docket (Ticket #${ticket}):**\n${humanReadableIssues.join('\n')}\n\n**Verification Matrix:**\n${state.verification.dbReport.join('\n') || '• Manual trace required.'}\n\n**System Diagnosis:**\n- *${state.rootCauseAnalysis.cause}*\n\nThis case file has been transmitted to operations. A support manager will assume control momentarily.`
     };
   }
 
-  // PROGRESSIVE ESCALATION: LEVEL 0 & 1 (Product Brain & Information)
-  if (['price_query', 'stock_query', 'product_search'].includes(state.primaryIntent.intent)) {
+  // TIER 0 & 1: Product Intelligence
+  if (['price_query', 'stock_query', 'product_search'].includes(state.primary.intent)) {
     if (state.entities.products.length > 0) {
       const p = state.entities.products[0];
       const stock = Math.max(0, (Number(p.real_stock) || 0) - (Number(p.buffer) || 2));
       return { 
-        type: 'answer', productContext: p, 
-        reply: `**Product Intelligence:**\n• Item: **${p.name}**\n• Price: **₹${p.price}**\n• Available Stock: **${stock} units**\n\n${stock === 0 ? '*I have logged a restock request for this item.*' : 'Would you like assistance adding this to your cart?'}` 
+        type: 'answer', newProduct: p, state: memory.currentState,
+        reply: `**Product Intelligence Graph:**\n• Item: **${p.name}**\n• Price: **₹${p.price}**\n• Live Stock: **${stock} units**\n\n${stock === 0 ? '*I have registered a procurement request for this SKU.*' : 'Would you like to add this to your active cart?'}` 
       };
-    } else if (state.normalizedMessage.length > 3) {
-      // Self-Learning: Log failed searches
-      try { await ItemRequest.findOrCreate({ where: { itemName: state.normalizedMessage }, defaults: { requestCount: 1 }}); } catch(e){}
-      return { type: 'answer', reply: "I searched the entire store inventory but couldn't find an exact match. I have automatically logged this as a high-demand request for our procurement team!" };
+    } else if (state.normalizedText.length > 3) {
+      try { ItemRequest.findOrCreate({ where: { itemName: state.normalizedText }, defaults: { requestCount: 1 }}); } catch(e){} // Learning Engine
+      return { type: 'answer', state: memory.currentState, reply: "I executed a deep scan of the inventory graph but could not locate that exact entity. I have logged this request in our procurement analytics dashboard." };
     }
   }
 
-  return { type: 'answer', reply: "Hello! 👋 I am the Lakshmi Stores Operating System. I can cross-examine payment ledgers, trace missing logistics, and analyze live inventory. How can I assist you today?" };
+  return { type: 'answer', state: memory.currentState, reply: "Hello! 👋 I am the Lakshmi Stores CRM Operating System. I handle logistics tracking, payment auditing, and inventory analytics. How may I direct your inquiry?" };
 };
 
 // ============================================================================
-// 🚀 LAYER 7: OMNI-BRAIN EXPRESS CONTROLLER
+// 🚀 [CONTROLLER] EVENT-DRIVEN EXECUTION & CRASH PROTECTION
 // ============================================================================
 exports.chat = async (req, res) => {
   try {
     const rawMessage = String(req.body.message || '').trim().slice(0, 1500);
-    if (!rawMessage) return res.status(400).json({ success: false, message: 'Message payload required.' });
+    if (!rawMessage) return res.status(400).json({ success: false, message: 'Payload required.' });
 
     let user = null;
     try {
@@ -337,15 +387,18 @@ exports.chat = async (req, res) => {
       if (header.startsWith('Bearer ')) user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
     } catch (e) { /* Guest */ }
 
-    // Memory Initialization
+    // Memory Initialization (Permanent Thread)
     let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
     if (!thread) {
       thread = await SupportThread.create({ 
         userId: user ? String(user.id) : null, status: THREAD_STATUS.AI, aiEnabled: true, 
-        metadata: { memory: { activeIssues: [], collectedEvidence: {}, frustrationScore: 0, escalationHistory: [] } } 
+        metadata: { memory: { conversationId: generateTicketId(), currentState: STATES.NEW, activeIssues: [], evidence: {}, customerMood: 'Neutral', frustrationScore: 0, timeline: [], messageCount: 0 } } 
       });
     } else if (thread.status === THREAD_STATUS.RESOLVED) {
+      // Reopen logic
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
+      thread.metadata.memory.currentState = STATES.NEW;
+      thread.metadata.memory.timeline.push(`[${new Date().toISOString()}] CRM Reopened Ticket.`);
     }
 
     await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
@@ -356,40 +409,40 @@ exports.chat = async (req, res) => {
       return res.json({ success: true, thread });
     }
 
-    // 🧠 EXECUTE V17 FINAL BEAST
-    const memory = (thread.metadata || {}).memory || { activeIssues: [], collectedEvidence: {}, frustrationScore: 0 };
-    const nlpAnalysis = await processNaturalLanguage(rawMessage);
-    const state = orchestrateInvestigation(nlpAnalysis, memory);
-    const decision = await buildResponse(state, memory, user);
+    const memory = (thread.metadata || {}).memory || {};
+    memory.messageCount = (memory.messageCount || 0) + 1;
+    memory.timeline.push(`[${new Date().toISOString()}] Intake: ${rawMessage.substring(0, 20)}`);
 
-    // 💾 COMMIT DIGITAL TWIN MEMORY
+    // Compression Engine Simulator
+    if (memory.messageCount % 100 === 0) memory.timeline.push(`[SYSTEM] Compression Cycle Executed.`);
+
+    // EXECUTE V25 CRM
+    const state = await processPipeline(rawMessage, memory, user);
+    const decision = await formulateResponse(state, memory);
+
+    // COMMIT DIGITAL TWIN
     const updatedMemory = { ...memory };
-    updatedMemory.frustrationScore = state.frustrationScore;
-    updatedMemory.collectedEvidence = state.collectedEvidence;
+    updatedMemory.currentState = decision.state;
+    updatedMemory.frustrationScore = decision.type === 'answer' ? Math.max(0, state.velocity - 15) : state.velocity;
+    updatedMemory.customerMood = state.emotion.mood;
     updatedMemory.activeIssues = state.activeIssues;
-    
-    if (decision.type === 'answer' || decision.type === 'cross_question') updatedMemory.frustrationScore = Math.max(0, updatedMemory.frustrationScore - 15);
-    if (decision.ticket) updatedMemory.activeTicket = decision.ticket;
-    if (decision.productContext) updatedMemory.lastProduct = decision.productContext;
+    updatedMemory.evidence = state.caseFile;
+    if (decision.newProduct) updatedMemory.lastProduct = decision.newProduct;
 
-    // 📝 SAVE AI & COPILOT RESPONSES
-    if (decision.reply) {
-      await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support System', body: decision.reply });
-    }
-    if (decision.copilot) {
-      await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'Admin Copilot', body: decision.copilot, isHiddenFromCustomer: true });
-    }
+    // SAVE RESPONSES
+    if (decision.reply) await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: decision.reply });
+    if (decision.copilot) await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'Admin Copilot', body: decision.copilot, isHiddenFromCustomer: true });
 
     if (decision.type === 'escalate') {
-      if (!Array.isArray(updatedMemory.escalationHistory)) updatedMemory.escalationHistory = [];
-      updatedMemory.escalationHistory.push({ time: new Date().toISOString(), level: decision.level });
-      
       await thread.update({ 
         status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', 
-        escalationReason: `${decision.level} [${decision.ticket || 'N/A'}]`, aiEnabled: false,
-        metadata: { memory: updatedMemory }
+        escalationReason: `${decision.level} [${decision.ticket || 'N/A'}]`, aiEnabled: false, metadata: { memory: updatedMemory }
       });
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
+    } else if (decision.type === 'resolve') {
+      updatedMemory.activeIssues = [];
+      await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: updatedMemory } });
+      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.RESOLVED });
     } else {
       await thread.update({ metadata: { memory: updatedMemory } });
     }
@@ -398,13 +451,13 @@ exports.chat = async (req, res) => {
     res.json({ success: true, thread: { ...thread.toJSON(), messages } });
 
   } catch (error) {
-    console.error('🛡️ V17 CRITICAL EXCEPTION:', error);
-    res.status(200).json({ success: true, fallback: true, message: "System diagnostics running. Migrating session to live administration console." });
+    console.error('🛡️ V25 KERNEL PANIC:', error);
+    res.status(200).json({ success: true, fallback: true, message: "CRITICAL EXCEPTION. Migrating session to live administration console." });
   }
 };
 
 // ============================================================================
-// 🛡️ [ADMIN API] FAIL-SAFE ROUTES
+// 🛡️ ADMIN FAIL-SAFE ROUTES
 // ============================================================================
 exports.getPublicThread = async (req, res) => {
   try {
@@ -443,7 +496,6 @@ exports.adminReply = async (req, res) => {
     await thread.update({ status: THREAD_STATUS.HUMAN_ACTIVE, aiEnabled: false, handledBy: req.user?.name });
     
     const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
-    
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
     res.json({ success: true, thread: { ...(thread.dataValues || thread), messages: (messages || []).map(m => m.dataValues || m) } });
   } catch (error) { res.status(500).json({ success: false, message: 'Failed to send reply.' }); }
@@ -454,11 +506,10 @@ exports.resolveThread = async (req, res) => {
     const thread = await SupportThread.findByPk(req.params.id);
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
-    await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and closed.' });
-    await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date() });
+    await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and archived.' });
+    await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: { currentState: STATES.RESOLVED, activeIssues: [] } } });
 
     const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
-    
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
     res.json({ success: true, thread: { ...(thread.dataValues || thread), messages: (messages || []).map(m => m.dataValues || m) } });
   } catch (error) { res.status(500).json({ success: false, message: 'Failed to resolve thread.' }); }

@@ -166,6 +166,10 @@ function App() {
                 <Route path="/" element={<CustomerLayout><ProductGrid /></CustomerLayout>} />
                 <Route path="/account" element={<ProtectedCustomerRoute><CustomerLayout><MyAccount /></CustomerLayout></ProtectedCustomerRoute>} />
                 <Route path="/orders" element={<ProtectedCustomerRoute><CustomerLayout><MyOrders /></CustomerLayout></ProtectedCustomerRoute>} />
+                // Example React Router implementation
+import SupportPage from './pages/SupportPage';
+
+<Route path="/support" element={<SupportPage />} />
               </Routes>
             </div>
           </CartProvider>

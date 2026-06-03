@@ -1,17 +1,10 @@
+const { GoogleGenAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
-const Product = require('../models/Product');
-const Order = require('../models/Order');
-const OrderItem = require('../models/OrderItem');
-const User = require('../models/User');
-const Notification = require('../models/Notification');
-const StoreSetting = require('../models/StoreSetting');
-const ItemRequest = require('../models/ItemRequest');
-const SupportThread = require('../models/SupportThread');
-const SupportMessage = require('../models/SupportMessage');
+const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
 
-const STORE_CLOSE_TIME = process.env.STORE_CLOSE_TIME || '10:00 PM';
-const PICKUP_READY_MINUTES = parseInt(process.env.PICKUP_READY_MINUTES || '10', 10);
+// Initialize Gemini
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const THREAD_STATUS = {
   AI: 'ai_answering',
@@ -20,75 +13,65 @@ const THREAD_STATUS = {
   RESOLVED: 'resolved'
 };
 
-const STOP_WORDS = new Set([
-  'a', 'an', 'and', 'any', 'are', 'at', 'available', 'can', 'close', 'closing',
-  'counter', 'do', 'fresh', 'get', 'have', 'hours', 'i', 'in', 'is', 'it', 'left',
-  'now', 'of', 'open', 'pickup', 'pick', 'please', 'shop', 'stock', 'store',
-  'there', 'time', 'up', 'we', 'what', 'when', 'you'
-]);
+// ============================================================
+// AI TOOLS (Function Calling)
+// ============================================================
+const aiTools = [{
+  functionDeclarations: [
+    {
+      name: 'check_inventory',
+      description: 'Search the live grocery catalog to check stock availability and pricing.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          searchQuery: { type: 'STRING', description: 'Product name or keyword (e.g., milk, onion, chips)' }
+        },
+        required: ['searchQuery']
+      }
+    },
+    {
+      name: 'escalate_to_admin',
+      description: 'Transfer the chat to a human store manager immediately for refunds, missing items, complaints, or complex issues.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          reason: { type: 'STRING', description: 'Detailed reason for handoff to the human store owner.' }
+        },
+        required: ['reason']
+      }
+    }
+  ]
+}];
 
-const truncate = (value = '', max = 180) => {
-  const clean = String(value).replace(/\s+/g, ' ').trim();
-  return clean.length > max ? `${clean.slice(0, max - 3)}...` : clean;
-};
-
-const normalize = (value = '') => (
-  String(value).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
-);
-
-const getTokens = (value = '') => normalize(value).split(' ').filter(Boolean);
-
-const getMeaningfulTokens = (value = '') => (
-  getTokens(value).filter((token) => token.length > 1 && !STOP_WORDS.has(token))
-);
-
-const sanitizeItemName = (value = '') => (
-  normalize(value).replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
-);
-
+// ============================================================
+// HELPER FUNCTIONS (Kept from your original logic)
+// ============================================================
 const getOptionalUser = async (req) => {
   try {
     const header = req.headers.authorization || '';
     if (!header.startsWith('Bearer ')) return null;
-
     const token = header.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-
-    return await User.findByPk(decoded.id, {
-      attributes: ['id', 'name', 'email', 'phone', 'role', 'isVerified']
-    });
-  } catch (error) {
-    return null;
-  }
+    return await User.findByPk(decoded.id, { attributes: ['id', 'name', 'email', 'phone', 'role', 'isVerified'] });
+  } catch (error) { return null; }
 };
 
 const serializeThread = async (thread) => {
-  const messages = await SupportMessage.findAll({
-    where: { threadId: thread.id },
-    order: [['createdAt', 'ASC']]
-  });
-
-  return {
-    ...thread.toJSON(),
-    messages
-  };
+  const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
+  return { ...thread.toJSON(), messages };
 };
 
 const emitSupportUpdate = (req, thread) => {
   const io = req.app.get('io');
-  if (!io) return;
-  io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
+  if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
 };
 
 const notifyAdmin = async (req, thread, reason, customerMessage) => {
   const customerLabel = thread.customerName || thread.customerEmail || 'Customer';
   await Notification.create({
-    userId: 'GLOBAL',
-    title: 'Customer needs help',
-    message: `${customerLabel}: ${truncate(customerMessage, 120)}`,
-    isRead: false
+    userId: 'GLOBAL', title: 'Customer needs help',
+    message: `${customerLabel}: ${String(customerMessage).slice(0, 120)}...`, isRead: false
   });
-
   const io = req.app.get('io');
   if (io) {
     io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN, reason });
@@ -96,271 +79,48 @@ const notifyAdmin = async (req, thread, reason, customerMessage) => {
   }
 };
 
-const getOrCreateThread = async (threadId, user) => {
-  let thread = null;
-  if (threadId) thread = await SupportThread.findByPk(threadId);
-
-  if (!thread) {
-    thread = await SupportThread.create({
-      userId: user ? String(user.id) : null,
-      customerName: user?.name || null,
-      customerEmail: user?.email || null,
-      customerPhone: user?.phone || null,
-      status: THREAD_STATUS.AI,
-      aiEnabled: true
-    });
-  }
-
-  if (thread.status === THREAD_STATUS.RESOLVED) {
-    await thread.update({
-      status: THREAD_STATUS.AI,
-      aiEnabled: true,
-      resolvedAt: null,
-      handledBy: null,
-      escalationReason: null
-    });
-  }
-
-  if (user && !thread.userId) {
-    await thread.update({
-      userId: String(user.id),
-      customerName: user.name || thread.customerName,
-      customerEmail: user.email || thread.customerEmail,
-      customerPhone: user.phone || thread.customerPhone
-    });
-  }
-
-  return thread;
-};
-
 const appendMessage = async (thread, senderType, body, senderName = null, metadata = null) => {
-  const message = await SupportMessage.create({
-    threadId: thread.id,
-    senderType,
-    senderName,
-    body,
-    metadata
-  });
-
+  const message = await SupportMessage.create({ threadId: thread.id, senderType, senderName, body, metadata });
   await thread.update({
-    lastMessagePreview: truncate(body, 500),
+    lastMessagePreview: String(body).slice(0, 500),
     lastCustomerMessageAt: senderType === 'customer' ? new Date() : thread.lastCustomerMessageAt,
     lastAdminMessageAt: senderType === 'admin' ? new Date() : thread.lastAdminMessageAt
   });
-
   return message;
 };
 
-const getStoreStatus = async () => {
-  const setting = await StoreSetting.findByPk(1);
-  return {
-    isOpen: setting ? setting.isOpen : true,
-    closingWarningActive: setting ? setting.closingWarningActive : false
-  };
-};
-
-const findBestProduct = (products, text) => {
-  const query = normalize(text);
-  const queryTokens = new Set(getTokens(text));
-
-  let best = null;
-  let bestScore = 0;
-
-  products.forEach((product) => {
-    const name = normalize(product.name);
-    const nameTokens = getTokens(product.name).filter((token) => token.length > 1);
-    let score = 0;
-
-    if (name && query.includes(name)) score += 6;
-    nameTokens.forEach((token) => {
-      if (queryTokens.has(token)) score += token.length > 3 ? 2 : 1;
-    });
-
-    if (score > bestScore) {
-      best = product;
-      bestScore = score;
-    }
-  });
-
-  return bestScore > 0 ? best : null;
-};
-
-const answerProductQuestion = (product, storeStatus) => {
-  const realStock = Number(product.real_stock || 0);
-  const buffer = Number(product.buffer ?? 2);
-  const availableStock = Math.max(0, realStock - buffer);
-  const unit = product.isSoldByWeight ? 'kg' : 'available';
-
-  if (availableStock > 0) {
-    const stockText = product.isSoldByWeight
-      ? `${availableStock} kg`
-      : `${availableStock} ${unit}`;
-    const pickupText = storeStatus.isOpen
-      ? ` We are open until ${STORE_CLOSE_TIME}, and pickup is usually ready in about ${PICKUP_READY_MINUTES} minutes.`
-      : ' Pickup is paused because the shop is currently closed.';
-    const warningText = storeStatus.closingWarningActive
-      ? ' The closing warning is active, so please place the order now if you need it today.'
-      : '';
-
-    return `Yes, ${product.name} is in stock. We have ${stockText} right now.${pickupText}${warningText}`;
-  }
-
-  if (realStock > 0) {
-    return `${product.name} is extremely low right now. Online stock is protected by the store buffer, so please let the counter confirm before promising it.`;
-  }
-
-  if (product.restockEta) {
-    return `${product.name} is out of stock right now. Expected restock: ${product.restockEta}.`;
-  }
-
-  return `${product.name} is out of stock right now. I can still note the demand for the store team if you want.`;
-};
-
-const answerStoreQuestion = (storeStatus) => {
-  if (!storeStatus.isOpen) {
-    return `The shop is closed right now. Normal pickup will resume when the shutter is opened by the store team.`;
-  }
-
-  if (storeStatus.closingWarningActive) {
-    return `The shop is open but closing soon. Please order immediately if you want pickup today. Most pickup orders are ready in about ${PICKUP_READY_MINUTES} minutes.`;
-  }
-
-  return `Yes, pickup is available now. We are open until ${STORE_CLOSE_TIME}, and most orders are ready in about ${PICKUP_READY_MINUTES} minutes.`;
-};
-
-const answerOrderQuestion = async (user) => {
-  if (!user) {
-    return 'I can check your latest order once you log in. For privacy, I cannot show order details without your account.';
-  }
-
-  const order = await Order.findOne({
-    where: { userId: String(user.id) },
-    order: [['createdAt', 'DESC']],
-    include: [{ model: OrderItem, as: 'items' }]
-  });
-
-  if (!order) return 'I do not see any orders on your account yet.';
-
-  const token = order.orderToken && order.orderToken !== 'WAIT'
-    ? order.orderToken
-    : order.cashfreeOrderId?.slice(-4) || 'latest';
-
-  const status = String(order.orderStatus || '').toLowerCase();
-  const itemCount = order.items?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || 0;
-
-  const statusText = {
-    pending_payment: 'payment is still pending',
-    pending_cash: 'it is waiting for cash payment at the counter',
-    pending_approval: 'it is waiting for store approval',
-    paid: 'it is received and waiting to be packed',
-    packed: 'it is packed and will be called soon',
-    ready: 'it is ready for pickup',
-    completed: 'it has been completed',
-    cancelled: 'it was cancelled',
-    failed: 'payment failed'
-  }[status] || `current status is ${status || 'unknown'}`;
-
-  return `Your order #${token} has ${itemCount} item(s), and ${statusText}. If anything is missing or wrong, I will bring the store manager into this chat.`;
-};
-
-const recordMissingItemRequest = async (text) => {
-  const candidate = sanitizeItemName(getMeaningfulTokens(text).slice(0, 4).join(' '));
-  if (candidate.length < 2 || candidate.length > 100) return null;
-
-  const [request, created] = await ItemRequest.findOrCreate({
-    where: { itemName: candidate },
-    defaults: { requestCount: 1 }
-  });
-
-  if (!created) {
-    request.requestCount += 1;
-    await request.save();
-  }
-
-  return candidate;
-};
-
-const classifyEscalation = (text) => {
-  const clean = normalize(text);
-  const rules = [
-    { reason: 'missing_item', pattern: /\b(missing|missed|short|not received|did not receive)\b/ },
-    { reason: 'refund_or_wallet', pattern: /\b(refund|wallet|charged|money|cashback)\b/ },
-    { reason: 'wrong_or_damaged_item', pattern: /\b(wrong|damaged|spoiled|expired|broken|leaking|bad quality)\b/ },
-    { reason: 'delivery_or_pickup_problem', pattern: /\b(complaint|problem|issue|manager|owner|human|help me)\b/ },
-    { reason: 'cancel_request', pattern: /\b(cancel my order|cancel order)\b/ }
-  ];
-
-  return rules.find((rule) => rule.pattern.test(clean))?.reason || null;
-};
-
-const getAssistantDecision = async (text, user) => {
-  const clean = normalize(text);
-  const escalationReason = classifyEscalation(text);
-  if (escalationReason) {
-    return {
-      type: 'escalate',
-      reason: escalationReason,
-      priority: 'urgent',
-      reply: 'I am sorry about that. This needs the store manager, so I am bringing them into this chat now. Please hold on for a moment.'
-    };
-  }
-
-  const products = await Product.findAll({
-    where: { isActive: true },
-    order: [['name', 'ASC']]
-  });
-  const storeStatus = await getStoreStatus();
-  const matchedProduct = findBestProduct(products, text);
-
-  const stockIntent = /\b(do you have|have|stock|available|left|in stock|out of stock|fresh)\b/.test(clean);
-  if (matchedProduct) {
-    return {
-      type: 'answer',
-      reply: answerProductQuestion(matchedProduct, storeStatus),
-      metadata: { productId: matchedProduct.id }
-    };
-  }
-
-  if (stockIntent) {
-    const itemName = await recordMissingItemRequest(text);
-    return {
-      type: 'answer',
-      reply: itemName
-        ? `I could not find "${itemName}" in the live catalog. I have noted it for the store team so they can stock it or add a restock ETA.`
-        : 'I could not find that item in the live catalog. Try the product name, for example "paneer" or "onion".'
-    };
-  }
-
-  const orderIntent = /\b(order|status|token|pin|payment)\b/.test(clean);
-  if (orderIntent) {
-    return { type: 'answer', reply: await answerOrderQuestion(user) };
-  }
-
-  const storeIntent = /\b(open|close|closing|hours|pickup|pick up|collect|counter|time)\b/.test(clean);
-  if (storeIntent) {
-    return { type: 'answer', reply: answerStoreQuestion(storeStatus) };
-  }
-
-  return {
-    type: 'answer',
-    reply: 'Hi, I am the Lakshmi Stores assistant. Ask me about item stock, pickup timing, or your latest order. If something went wrong with an order, I will bring the store manager into this chat.'
-  };
-};
-
+// ============================================================
+// TRUE AI CHAT LOGIC (RAG + GEMINI)
+// ============================================================
 exports.chat = async (req, res) => {
   try {
-    const message = truncate(req.body.message || '', 1000);
+    const message = String(req.body.message || '').trim().slice(0, 1000);
     const threadId = req.body.threadId || null;
-
-    if (!message || message.length < 1) {
-      return res.status(400).json({ success: false, message: 'Message is required.' });
-    }
+    if (!message) return res.status(400).json({ success: false, message: 'Message is required.' });
 
     const user = await getOptionalUser(req);
-    const thread = await getOrCreateThread(threadId, user);
+    
+    // Find or Create Thread
+    let thread = null;
+    if (threadId) thread = await SupportThread.findByPk(threadId);
+    if (!thread) {
+      thread = await SupportThread.create({
+        userId: user ? String(user.id) : null,
+        customerName: user?.name || null,
+        customerEmail: user?.email || null,
+        customerPhone: user?.phone || null,
+        status: THREAD_STATUS.AI, aiEnabled: true
+      });
+    }
 
+    if (thread.status === THREAD_STATUS.RESOLVED) {
+      await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null, handledBy: null, escalationReason: null });
+    }
+
+    // Save Customer Message
     await appendMessage(thread, 'customer', message, user?.name || 'Customer');
 
+    // If Admin took over, AI stays silent
     if (!thread.aiEnabled || [THREAD_STATUS.NEEDS_ADMIN, THREAD_STATUS.HUMAN_ACTIVE].includes(thread.status)) {
       await thread.update({
         status: thread.status === THREAD_STATUS.AI ? THREAD_STATUS.NEEDS_ADMIN : thread.status,
@@ -370,88 +130,144 @@ exports.chat = async (req, res) => {
       return res.json({ success: true, thread: await serializeThread(thread) });
     }
 
-    const decision = await getAssistantDecision(message, user);
-    await appendMessage(thread, 'assistant', decision.reply, 'Lakshmi Assistant', decision.metadata || null);
+    // 🚨 1. RAG Context Gathering (Store Status & Latest Order)
+    const storeSetting = await StoreSetting.findByPk(1);
+    const isOpen = storeSetting ? storeSetting.isOpen : true;
+    const closingWarning = storeSetting ? storeSetting.closingWarningActive : false;
 
-    if (decision.type === 'escalate') {
-      await thread.update({
-        status: THREAD_STATUS.NEEDS_ADMIN,
-        priority: decision.priority,
-        escalationReason: decision.reason,
-        aiEnabled: false
-      });
-      await notifyAdmin(req, thread, decision.reason, message);
+    let latestOrderContext = "Customer is not logged in or has no past orders.";
+    if (user) {
+      const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']], include: [{ model: OrderItem, as: 'items' }] });
+      if (order) {
+        latestOrderContext = `Customer's Latest Order: #${order.orderToken || order.cashfreeOrderId.slice(-4)}. Status: ${order.orderStatus}. Amount: ₹${order.orderAmount}.`;
+      }
+    }
+
+    // 🚨 2. System Prompt Injection
+    const systemInstruction = `
+      You are the elite AI Assistant for Lakshmi Stores.
+      
+      REAL-TIME DATA:
+      - Store Status: ${isOpen ? (closingWarning ? 'Open, but closing very soon.' : 'Open') : 'Closed. Shutter is down.'}
+      - ${latestOrderContext}
+      
+      RULES:
+      - You must be concise, helpful, and highly professional.
+      - Stock Availability Equation: Available units = real_stock - buffer. If available units <= 0, the item is out of stock.
+      - If the user asks for item availability or prices, ALWAYS invoke 'check_inventory'. Do not guess.
+      - If the user is hostile, demands refunds, says an item was missing from their order, or explicitly wants a human, invoke 'escalate_to_admin' immediately.
+    `;
+
+    // 🚨 3. Chat History Formatting
+    const rawHistory = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']], limit: 20 });
+    const contents = rawHistory.map(msg => ({
+      role: msg.senderType === 'customer' ? 'user' : 'model',
+      parts: [{ text: msg.body }]
+    }));
+
+    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction, tools: aiTools });
+    let result = await model.generateContent({ contents });
+    let responseText = result.response.text();
+    const functionCalls = result.response.functionCalls;
+
+    let decisionType = 'answer';
+    let escalationReason = null;
+
+    // 🚨 4. Function Execution Engine
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+
+      if (call.name === 'check_inventory') {
+        const query = call.args.searchQuery || '';
+        const matchingProducts = await Product.findAll({ where: { isActive: true, [Op.or]: [{ name: { [Op.iLike]: `%${query}%` } }, { category: { [Op.iLike]: `%${query}%` } }] }, limit: 5 });
+
+        let toolResponseText = "";
+        if (matchingProducts.length === 0) {
+          toolResponseText = `We do not have any products matching "${query}" in stock right now. Use the search bar in the main catalog to submit a missing item request!`;
+        } else {
+          toolResponseText = "Here is our active inventory matching your request:\n";
+          matchingProducts.forEach(p => {
+            const safeStock = Math.max(0, (p.real_stock || 0) - (p.buffer ?? 2));
+            toolResponseText += `- ${p.name}: ₹${p.price} per ${p.isSoldByWeight ? 'KG' : 'piece'} (${safeStock > 0 ? `${safeStock} available` : 'Out of Stock'})\n`;
+          });
+        }
+
+        // Pass data back to Gemini to format a friendly response
+        const toolResult = await model.generateContent({
+          contents: [
+            ...contents,
+            { role: 'model', parts: [{ functionCall: call }] },
+            { role: 'user', parts: [{ functionResponse: { name: 'check_inventory', response: { result: toolResponseText } } }] }
+          ]
+        });
+        responseText = toolResult.response.text();
+      } 
+      else if (call.name === 'escalate_to_admin') {
+        decisionType = 'escalate';
+        escalationReason = call.args.reason || 'Escalated by AI decision.';
+        responseText = "I completely understand. I am bringing the store manager into this chat right now to help you. Please hold on a moment.";
+      }
+    }
+
+    // Save AI output response
+    if (responseText) {
+      await appendMessage(thread, 'assistant', responseText, 'Lakshmi Assistant');
+    }
+
+    // Handle Handoff
+    if (decisionType === 'escalate') {
+      await thread.update({ status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason, aiEnabled: false });
+      await notifyAdmin(req, thread, escalationReason, message);
     } else {
-      await thread.update({
-        status: THREAD_STATUS.AI,
-        priority: 'normal',
-        aiEnabled: true
-      });
+      await thread.update({ status: THREAD_STATUS.AI, priority: 'normal', aiEnabled: true });
     }
 
     res.json({ success: true, thread: await serializeThread(thread) });
+
   } catch (error) {
-    console.error('Support chat error:', error);
+    console.error('AI Engine error:', error);
     res.status(500).json({ success: false, message: 'Support assistant failed to respond.' });
   }
 };
 
+// ============================================================
+// ADMIN ROUTES (Kept identical to preserve React UI)
+// ============================================================
 exports.getPublicThread = async (req, res) => {
   try {
     const thread = await SupportThread.findByPk(req.params.id);
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
-
     res.json({ success: true, thread: await serializeThread(thread) });
-  } catch (error) {
-    console.error('Fetch support thread error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch support thread.' });
-  }
+  } catch (error) { res.status(500).json({ success: false, message: 'Failed to fetch thread.' }); }
 };
 
 exports.getThreads = async (req, res) => {
   try {
     const { status } = req.query;
     const where = {};
-
     if (status === 'active') where.status = { [Op.ne]: THREAD_STATUS.RESOLVED };
     else if (status) where.status = status;
 
-    const threads = await SupportThread.findAll({
-      where,
-      order: [['updatedAt', 'DESC']],
-      limit: 50
-    });
-
+    const threads = await SupportThread.findAll({ where, order: [['updatedAt', 'DESC']], limit: 50 });
     const data = await Promise.all(threads.map(serializeThread));
     res.json({ success: true, data });
-  } catch (error) {
-    console.error('Fetch support threads error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch support threads.' });
-  }
+  } catch (error) { res.status(500).json({ success: false, message: 'Failed to fetch threads.' }); }
 };
 
 exports.adminReply = async (req, res) => {
   try {
-    const message = truncate(req.body.message || '', 1000);
+    const message = String(req.body.message || '').trim().slice(0, 1000);
     if (!message) return res.status(400).json({ success: false, message: 'Message is required.' });
 
     const thread = await SupportThread.findByPk(req.params.id);
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     await appendMessage(thread, 'admin', message, req.user?.name || 'Store Manager');
-    await thread.update({
-      status: THREAD_STATUS.HUMAN_ACTIVE,
-      aiEnabled: false,
-      handledBy: req.user?.name || 'Store Manager',
-      priority: 'normal'
-    });
+    await thread.update({ status: THREAD_STATUS.HUMAN_ACTIVE, aiEnabled: false, handledBy: req.user?.name || 'Store Manager', priority: 'normal' });
 
     emitSupportUpdate(req, thread);
     res.json({ success: true, thread: await serializeThread(thread) });
-  } catch (error) {
-    console.error('Admin support reply error:', error);
-    res.status(500).json({ success: false, message: 'Failed to send reply.' });
-  }
+  } catch (error) { res.status(500).json({ success: false, message: 'Failed to send reply.' }); }
 };
 
 exports.resolveThread = async (req, res) => {
@@ -460,17 +276,9 @@ exports.resolveThread = async (req, res) => {
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     await appendMessage(thread, 'system', 'Conversation marked resolved by the store team.', 'System');
-    await thread.update({
-      status: THREAD_STATUS.RESOLVED,
-      aiEnabled: false,
-      resolvedAt: new Date(),
-      priority: 'normal'
-    });
+    await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), priority: 'normal' });
 
     emitSupportUpdate(req, thread);
     res.json({ success: true, thread: await serializeThread(thread) });
-  } catch (error) {
-    console.error('Resolve support thread error:', error);
-    res.status(500).json({ success: false, message: 'Failed to resolve thread.' });
-  }
+  } catch (error) { res.status(500).json({ success: false, message: 'Failed to resolve thread.' }); }
 };

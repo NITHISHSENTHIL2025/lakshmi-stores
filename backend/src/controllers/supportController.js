@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
@@ -14,7 +14,7 @@ const THREAD_STATUS = {
 };
 
 // ============================================================
-// AI TOOLS (Strict SchemaType Implementation)
+// AI TOOLS (Using Safe String Literals)
 // ============================================================
 const aiTools = [{
   functionDeclarations: [
@@ -22,20 +22,20 @@ const aiTools = [{
       name: 'check_inventory',
       description: 'Search the live grocery catalog to check stock availability and pricing.',
       parameters: {
-        type: SchemaType.OBJECT,
+        type: 'OBJECT',
         properties: {
-          searchQuery: { type: SchemaType.STRING, description: 'Product name or keyword (e.g., milk, onion, chips)' }
+          searchQuery: { type: 'STRING', description: 'Product name or keyword (e.g., milk, onion, chips)' }
         },
         required: ['searchQuery']
       }
     },
     {
       name: 'escalate_to_admin',
-      description: 'Transfer the chat to a human store manager immediately for refunds, missing items, complaints, or complex issues.',
+      description: 'Transfer the chat to a human store manager immediately for refunds, complaints, or issues.',
       parameters: {
-        type: SchemaType.OBJECT,
+        type: 'OBJECT',
         properties: {
-          reason: { type: SchemaType.STRING, description: 'Detailed reason for handoff to the human store owner.' }
+          reason: { type: 'STRING', description: 'Detailed reason for handoff to the human store owner.' }
         },
         required: ['reason']
       }
@@ -90,7 +90,7 @@ const appendMessage = async (thread, senderType, body, senderName = null, metada
 };
 
 // ============================================================
-// TRUE AI CHAT LOGIC (RAG + GEMINI)
+// TRUE AI CHAT LOGIC (Un-Crashable Version)
 // ============================================================
 exports.chat = async (req, res) => {
   try {
@@ -146,11 +146,9 @@ exports.chat = async (req, res) => {
     // 2. System Prompt Injection
     const systemInstruction = `
       You are the elite AI Assistant for Lakshmi Stores.
-      
       REAL-TIME DATA:
       - Store Status: ${isOpen ? (closingWarning ? 'Open, but closing very soon.' : 'Open') : 'Closed. Shutter is down.'}
       - ${latestOrderContext}
-      
       RULES:
       - You must be concise, helpful, and highly professional.
       - Stock Availability Equation: Available units = real_stock - buffer. If available units <= 0, the item is out of stock.
@@ -160,11 +158,9 @@ exports.chat = async (req, res) => {
 
     // 3. Chat History Formatting
     const rawHistory = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']], limit: 20 });
-    
     const contents = [];
     rawHistory.forEach(msg => {
       const role = msg.senderType === 'customer' ? 'user' : 'model';
-      
       if (contents.length > 0 && contents[contents.length - 1].role === role) {
         contents[contents.length - 1].parts[0].text += `\n${msg.body}`;
       } else {
@@ -176,54 +172,52 @@ exports.chat = async (req, res) => {
       contents.shift();
     }
 
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction, tools: aiTools });
-    let result = await model.generateContent({ contents });
-    
-    // 🚨 SAFELY EXTRACT FUNCTION CALLS FIRST
-    const functionCalls = result.response.functionCalls;
     let responseText = "";
     let decisionType = 'answer';
     let escalationReason = null;
 
-    if (functionCalls && functionCalls.length > 0) {
-      const call = functionCalls[0];
+    // 🚨 4. THE SAFETY NET (If Gemini fails, it degrades gracefully)
+    try {
+      const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction, tools: aiTools });
+      let result = await model.generateContent({ contents });
+      
+      const functionCalls = result.response?.functionCalls;
 
-      if (call.name === 'check_inventory') {
-        const query = call.args.searchQuery || '';
-        const matchingProducts = await Product.findAll({ where: { isActive: true, [Op.or]: [{ name: { [Op.iLike]: `%${query}%` } }, { category: { [Op.iLike]: `%${query}%` } }] }, limit: 5 });
+      if (functionCalls && functionCalls.length > 0) {
+        const call = functionCalls[0];
 
-        let toolResponseText = "";
-        if (matchingProducts.length === 0) {
-          toolResponseText = `We do not have any products matching "${query}" in stock right now. Use the search bar in the main catalog to submit a missing item request!`;
-        } else {
-          toolResponseText = "Here is our active inventory matching your request:\n";
-          matchingProducts.forEach(p => {
-            const safeStock = Math.max(0, (p.real_stock || 0) - (p.buffer ?? 2));
-            toolResponseText += `- ${p.name}: ₹${p.price} per ${p.isSoldByWeight ? 'KG' : 'piece'} (${safeStock > 0 ? `${safeStock} available` : 'Out of Stock'})\n`;
-          });
+        if (call.name === 'check_inventory') {
+          const query = call.args.searchQuery || '';
+          const matchingProducts = await Product.findAll({ where: { isActive: true, [Op.or]: [{ name: { [Op.iLike]: `%${query}%` } }, { category: { [Op.iLike]: `%${query}%` } }] }, limit: 5 });
+
+          if (matchingProducts.length === 0) {
+            responseText = `I couldn't find any items matching "${query}" right now. Please use the search bar on the store page to submit a missing item request!`;
+          } else {
+            responseText = "Here is what I found in stock:\n";
+            matchingProducts.forEach(p => {
+              const safeStock = Math.max(0, (p.real_stock || 0) - (p.buffer ?? 2));
+              responseText += `- ${p.name}: ₹${p.price} (${safeStock > 0 ? `${safeStock} available` : 'Out of Stock'})\n`;
+            });
+          }
+        } 
+        else if (call.name === 'escalate_to_admin') {
+          decisionType = 'escalate';
+          escalationReason = call.args.reason || 'Escalated by AI decision.';
+          responseText = "I completely understand. I am bringing the store manager into this chat right now to help you. Please hold on a moment.";
         }
-
-        const toolResult = await model.generateContent({
-          contents: [
-            ...contents,
-            { role: 'model', parts: [{ functionCall: call }] },
-            { role: 'user', parts: [{ functionResponse: { name: 'check_inventory', response: { result: toolResponseText } } }] }
-          ]
-        });
-        
-        // Safe to extract text here after tool fulfillment
-        responseText = toolResult.response.text();
-      } 
-      else if (call.name === 'escalate_to_admin') {
-        decisionType = 'escalate';
-        escalationReason = call.args.reason || 'Escalated by AI decision.';
-        responseText = "I completely understand. I am bringing the store manager into this chat right now to help you. Please hold on a moment.";
+      } else {
+        responseText = result.response.text();
       }
-    } else {
-      // 🚨 SAFE TO EXTRACT NORMAL TEXT IF NO TOOLS WERE CALLED
-      responseText = result.response.text();
+    } catch (aiError) {
+      console.error('⚠️ GEMINI API CRASH INTERCEPTED:', aiError);
+      
+      // Fallback response so the customer isn't left hanging!
+      responseText = "I'm having a little trouble connecting to my system right now. Let me bring the store manager in to assist you.";
+      decisionType = 'escalate';
+      escalationReason = 'AI API Failure / Fallback triggered';
     }
 
+    // Save Output and Handle State
     if (responseText) {
       await appendMessage(thread, 'assistant', responseText, 'Lakshmi Assistant');
     }
@@ -238,7 +232,7 @@ exports.chat = async (req, res) => {
     res.json({ success: true, thread: await serializeThread(thread) });
 
   } catch (error) {
-    console.error('AI Engine error:', error);
+    console.error('Fatal Route Error:', error);
     res.status(500).json({ success: false, message: 'Support assistant failed to respond.' });
   }
 };

@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
@@ -14,7 +14,7 @@ const THREAD_STATUS = {
 };
 
 // ============================================================
-// AI TOOLS (Function Calling)
+// AI TOOLS (Strict SchemaType Implementation)
 // ============================================================
 const aiTools = [{
   functionDeclarations: [
@@ -22,9 +22,9 @@ const aiTools = [{
       name: 'check_inventory',
       description: 'Search the live grocery catalog to check stock availability and pricing.',
       parameters: {
-        type: 'OBJECT',
+        type: SchemaType.OBJECT,
         properties: {
-          searchQuery: { type: 'STRING', description: 'Product name or keyword (e.g., milk, onion, chips)' }
+          searchQuery: { type: SchemaType.STRING, description: 'Product name or keyword (e.g., milk, onion, chips)' }
         },
         required: ['searchQuery']
       }
@@ -33,9 +33,9 @@ const aiTools = [{
       name: 'escalate_to_admin',
       description: 'Transfer the chat to a human store manager immediately for refunds, missing items, complaints, or complex issues.',
       parameters: {
-        type: 'OBJECT',
+        type: SchemaType.OBJECT,
         properties: {
-          reason: { type: 'STRING', description: 'Detailed reason for handoff to the human store owner.' }
+          reason: { type: SchemaType.STRING, description: 'Detailed reason for handoff to the human store owner.' }
         },
         required: ['reason']
       }
@@ -130,7 +130,7 @@ exports.chat = async (req, res) => {
       return res.json({ success: true, thread: await serializeThread(thread) });
     }
 
-    // 🚨 1. RAG Context Gathering (Store Status & Latest Order)
+    // 1. RAG Context Gathering
     const storeSetting = await StoreSetting.findByPk(1);
     const isOpen = storeSetting ? storeSetting.isOpen : true;
     const closingWarning = storeSetting ? storeSetting.closingWarningActive : false;
@@ -143,7 +143,7 @@ exports.chat = async (req, res) => {
       }
     }
 
-    // 🚨 2. System Prompt Injection
+    // 2. System Prompt Injection
     const systemInstruction = `
       You are the elite AI Assistant for Lakshmi Stores.
       
@@ -158,16 +158,13 @@ exports.chat = async (req, res) => {
       - If the user is hostile, demands refunds, says an item was missing from their order, or explicitly wants a human, invoke 'escalate_to_admin' immediately.
     `;
 
-    // 🚨 3. Chat History Formatting (THE FIX IS HERE)
+    // 3. Chat History Formatting
     const rawHistory = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']], limit: 20 });
     
     const contents = [];
     rawHistory.forEach(msg => {
-      // Map admin and AI to 'model', customer to 'user'
       const role = msg.senderType === 'customer' ? 'user' : 'model';
       
-      // Gemini CRASHES if two 'user' or two 'model' messages are sent back-to-back.
-      // We must merge consecutive messages from the same role.
       if (contents.length > 0 && contents[contents.length - 1].role === role) {
         contents[contents.length - 1].parts[0].text += `\n${msg.body}`;
       } else {
@@ -175,20 +172,19 @@ exports.chat = async (req, res) => {
       }
     });
 
-    // Gemini strictly requires the first message to be from the 'user'
     if (contents.length > 0 && contents[0].role !== 'user') {
       contents.shift();
     }
 
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash', systemInstruction, tools: aiTools });
     let result = await model.generateContent({ contents });
-    let responseText = result.response.text();
+    
+    // 🚨 SAFELY EXTRACT FUNCTION CALLS FIRST
     const functionCalls = result.response.functionCalls;
-
+    let responseText = "";
     let decisionType = 'answer';
     let escalationReason = null;
 
-    // 🚨 4. Function Execution Engine
     if (functionCalls && functionCalls.length > 0) {
       const call = functionCalls[0];
 
@@ -214,6 +210,8 @@ exports.chat = async (req, res) => {
             { role: 'user', parts: [{ functionResponse: { name: 'check_inventory', response: { result: toolResponseText } } }] }
           ]
         });
+        
+        // Safe to extract text here after tool fulfillment
         responseText = toolResult.response.text();
       } 
       else if (call.name === 'escalate_to_admin') {
@@ -221,14 +219,15 @@ exports.chat = async (req, res) => {
         escalationReason = call.args.reason || 'Escalated by AI decision.';
         responseText = "I completely understand. I am bringing the store manager into this chat right now to help you. Please hold on a moment.";
       }
+    } else {
+      // 🚨 SAFE TO EXTRACT NORMAL TEXT IF NO TOOLS WERE CALLED
+      responseText = result.response.text();
     }
 
-    // Save AI output response
     if (responseText) {
       await appendMessage(thread, 'assistant', responseText, 'Lakshmi Assistant');
     }
 
-    // Handle Handoff
     if (decisionType === 'escalate') {
       await thread.update({ status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason, aiEnabled: false });
       await notifyAdmin(req, thread, escalationReason, message);
@@ -245,7 +244,7 @@ exports.chat = async (req, res) => {
 };
 
 // ============================================================
-// ADMIN ROUTES
+// ADMIN ROUTES 
 // ============================================================
 exports.getPublicThread = async (req, res) => {
   try {

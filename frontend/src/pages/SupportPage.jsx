@@ -1,30 +1,74 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Image as ImageIcon, Bot, UserRound, ShieldCheck } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { useStore } from '../context/StoreContext'; 
 
 const SupportPage = () => {
+  const { socket } = useStore(); 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [threadStatus, setThreadStatus] = useState(null);
   const [isSending, setIsSending] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Now stores an object: { file: File, base64: "data:image..." }
+  const [selectedFile, setSelectedFile] = useState(null); 
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const fetchThread = useCallback(async (threadId) => {
+    if (!threadId) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/support/threads/${threadId}`);
+      if (data.success && data.thread) {
+        setMessages(data.thread.messages || []);
+        setThreadStatus(data.thread.status);
+      }
+    } catch (err) {
+      localStorage.removeItem('support_thread_id');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const savedThreadId = localStorage.getItem('support_thread_id');
+    fetchThread(savedThreadId);
+  }, [fetchThread]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleSupportUpdate = (payload) => {
+      const currentThreadId = localStorage.getItem('support_thread_id');
+      if (payload && payload.threadId === currentThreadId) {
+        fetchThread(currentThreadId); 
+      }
+    };
+    socket.on('supportUpdated', handleSupportUpdate);
+    return () => socket.off('supportUpdated', handleSupportUpdate);
+  }, [socket, fetchThread]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // Handle file selection
+  // 🔥 THE FIX: Convert the uploaded image to Base64 String instantly
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
-      setSelectedFile(file);
-      toast.success('Image attached!');
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSelectedFile({ file, base64: reader.result }); // Save Base64 data
+        toast.success('Image attached!');
+      };
+      reader.readAsDataURL(file); // Convert to Base64
     } else {
       toast.error('Please select a valid JPEG or PNG image.');
     }
@@ -37,22 +81,17 @@ const SupportPage = () => {
     setIsSending(true);
     const threadId = localStorage.getItem('support_thread_id');
     
-    // 🔥 THE FIX: If input is empty but a photo is attached, send "[Photo Attached]" 
-    // to prevent the backend 400 crash for empty messages.
-    const textToSend = input.trim() ? input : "[Photo Attached]";
+    const textToSend = input.trim() ? input : "Here is my photo proof:";
 
-    // In a real scenario, you'd upload the file to S3/Cloudinary here. 
-    // We are mocking it by sending a photo flag so the backend knows.
     const payload = {
       message: textToSend,
       threadId: threadId,
-      photo: selectedFile ? "photo_attached_flag" : null 
+      photo: selectedFile ? selectedFile.base64 : null // Send Base64 directly
     };
 
     // Optimistic UI update
-    const displayMsg = selectedFile && input.trim() ? `${input} [Photo Attached]` : textToSend;
+    const displayMsg = selectedFile ? `${textToSend}ATTACHED_IMG:${selectedFile.base64}` : textToSend;
     const tempMsg = { id: Date.now(), senderType: 'customer', body: displayMsg };
-    
     setMessages(prev => [...prev, tempMsg]);
     setInput('');
     setSelectedFile(null);
@@ -66,14 +105,28 @@ const SupportPage = () => {
       }
     } catch (err) {
       toast.error('Failed to send message.');
+      setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
     } finally {
       setIsSending(false);
     }
   };
 
+  // 🔥 THE FIX: Render the image if it exists in the message body
+  const renderMessageBody = (body) => {
+    if (body.includes('ATTACHED_IMG:')) {
+      const parts = body.split('ATTACHED_IMG:');
+      return (
+        <div className="flex flex-col gap-3">
+          {parts[0] && <span>{parts[0]}</span>}
+          <img src={parts[1]} alt="Customer Upload" className="max-w-[200px] rounded-lg border border-gray-700 shadow-sm" />
+        </div>
+      );
+    }
+    return body.split('\n').map((line, i) => <span key={i}>{line}<br/></span>);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center pt-10 pb-20 px-4">
-      
       <div className="w-full max-w-3xl mb-6 text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 mb-2">Help & Support</h1>
         <p className="text-gray-500 font-medium flex items-center justify-center gap-2">
@@ -83,53 +136,49 @@ const SupportPage = () => {
       </div>
 
       <div className="w-full max-w-3xl bg-white/80 backdrop-blur-xl border border-gray-200 rounded-[2rem] shadow-xl overflow-hidden flex flex-col h-[70vh]">
-        
-        {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/50">
-          {messages.length === 0 && (
+          
+          {isLoading ? (
+            <div className="h-full flex items-center justify-center text-gray-400 font-bold animate-pulse">
+              Loading conversation...
+            </div>
+          ) : messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400">
               <Bot className="w-16 h-16 mb-4 opacity-50" />
               <p className="font-semibold">Send a message to start a support ticket.</p>
             </div>
-          )}
-
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex flex-col ${msg.senderType === 'customer' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm font-semibold leading-relaxed shadow-sm ${
-                msg.senderType === 'customer' 
-                  ? 'bg-gray-900 text-white rounded-br-sm' 
-                  : msg.senderType === 'admin' 
-                    ? 'bg-blue-50 text-blue-900 border border-blue-200 rounded-bl-sm'
-                    : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'
-              }`}>
-                {msg.senderType !== 'customer' && (
-                  <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest opacity-70">
-                    {msg.senderType === 'admin' ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-                    {msg.senderName || 'Support'}
-                  </div>
-                )}
-                {/* Parse line breaks easily */}
-                {msg.body.split('\n').map((line, i) => (
-                  <span key={i}>{line}<br/></span>
-                ))}
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} className={`flex flex-col ${msg.senderType === 'customer' ? 'items-end' : 'items-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm font-semibold leading-relaxed shadow-sm ${
+                  msg.senderType === 'customer' 
+                    ? 'bg-gray-900 text-white rounded-br-sm' 
+                    : msg.senderType === 'admin' 
+                      ? 'bg-blue-50 text-blue-900 border border-blue-200 rounded-bl-sm'
+                      : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'
+                }`}>
+                  {msg.senderType !== 'customer' && (
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest opacity-70">
+                      {msg.senderType === 'admin' ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                      {msg.senderName || 'Support'}
+                    </div>
+                  )}
+                  {/* Call the render function here */}
+                  {renderMessageBody(msg.body)} 
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         <div className="bg-white border-t border-gray-100 p-4">
-          
           {threadStatus === 'needs_admin' && (
             <div className="mb-3 text-center text-xs font-bold text-orange-600 bg-orange-50 py-2 rounded-lg">
               Automated responses are muted. The store admin will reply to you shortly.
             </div>
           )}
-
           <form onSubmit={sendMessage} className="flex items-center gap-3">
-            
-            {/* File Upload Button */}
             <label className="cursor-pointer shrink-0 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition text-gray-500 hover:text-gray-900 relative">
               <input type="file" accept="image/jpeg, image/png" className="hidden" onChange={handleFileChange} />
               <ImageIcon className="w-5 h-5" />
@@ -137,15 +186,13 @@ const SupportPage = () => {
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
               )}
             </label>
-
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={selectedFile ? `Attached: ${selectedFile.name}` : "Describe your issue here..."}
+              placeholder={selectedFile ? `Attached: ${selectedFile.file.name}` : "Describe your issue here..."}
               className="flex-1 h-12 bg-gray-50 border border-gray-200 rounded-xl px-4 font-medium text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
             />
-            
             <button
               type="submit"
               disabled={(!input.trim() && !selectedFile) || isSending}

@@ -45,7 +45,6 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
 
   useEffect(() => {
     if (!socket) return undefined;
-
     socket.on('supportUpdated', fetchThreads);
     return () => socket.off('supportUpdated', fetchThreads);
   }, [socket, fetchThreads]);
@@ -59,7 +58,6 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
       const { data } = await api.post(`/support/threads/${selectedThread.id}/messages`, {
         message: reply.trim()
       });
-
       setThreads((current) => current.map((thread) => (
         thread.id === data.thread.id ? data.thread : thread
       )));
@@ -74,7 +72,6 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
 
   const resolveThread = async () => {
     if (!selectedThread) return;
-
     try {
       await api.put(`/support/threads/${selectedThread.id}/resolve`);
       toast.success('Conversation resolved.');
@@ -90,6 +87,20 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
     if (senderType === 'admin') return 'bg-green-50 text-green-900 border border-green-200 mr-auto rounded-bl-sm';
     if (senderType === 'system') return 'bg-gray-100 text-gray-500 mx-auto text-center text-xs';
     return 'bg-white text-gray-800 border border-gray-100 mr-auto rounded-bl-sm';
+  };
+
+  // 🔥 THE FIX: Parse the Base64 image and render an actual Image tag
+  const renderMessageBody = (body) => {
+    if (body.includes('ATTACHED_IMG:')) {
+      const parts = body.split('ATTACHED_IMG:');
+      return (
+        <div className="flex flex-col gap-3">
+          {parts[0] && <span>{parts[0]}</span>}
+          <img src={parts[1]} alt="Customer Upload" className="max-w-[250px] rounded-lg border border-gray-700 shadow-sm" />
+        </div>
+      );
+    }
+    return body.split('\n').map((line, i) => <span key={i}>{line}<br/></span>);
   };
 
   if (isLoading) {
@@ -141,7 +152,7 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
                     </span>
                   </div>
                   <p className="line-clamp-2 text-xs font-semibold leading-relaxed text-gray-500">
-                    {thread.lastMessagePreview || 'New conversation'}
+                    {thread.lastMessagePreview?.includes('ATTACHED_IMG:') ? '📷 Sent a photo' : thread.lastMessagePreview || 'New conversation'}
                   </p>
                   <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
                     {new Date(thread.updatedAt).toLocaleString()}
@@ -186,7 +197,7 @@ const AdminSupportInbox = ({ socket, onCountChange }) => {
                               {message.senderName || 'Store'}
                             </div>
                           )}
-                          {message.body}
+                          {renderMessageBody(message.body)}
                         </div>
                       </div>
                     ))}

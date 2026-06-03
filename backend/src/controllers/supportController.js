@@ -1,154 +1,208 @@
-'use strict';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, Image as ImageIcon, Bot, UserRound, ShieldCheck } from 'lucide-react';
+import api from '../api/axios';
+import toast from 'react-hot-toast';
+import { useStore } from '../context/StoreContext'; // Added to get socket for real-time updates
 
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { Op } = require('sequelize');
-const { User, SupportThread, SupportMessage } = require('../models');
+const SupportPage = () => {
+  const { socket } = useStore(); // Real-time connection
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [threadStatus, setThreadStatus] = useState(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const messagesEndRef = useRef(null);
 
-const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
-const generateTicketId = () => `LS-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-exports.chat = async (req, res) => {
-  try {
-    const rawMessage = String(req.body.message || '').trim().slice(0, 1500);
-
-    if (!rawMessage) {
-      return res.status(400).json({ success: false, message: 'Message required.' });
+  // 🔥 1. FETCH THREAD HISTORY FUNCTION
+  const fetchThread = useCallback(async (threadId) => {
+    if (!threadId) {
+      setIsLoading(false);
+      return;
     }
-
-    // 1. Identify User
-    let user = null;
     try {
-      const header = String(req.headers.authorization || '');
-      if (header.startsWith('Bearer ')) {
-        user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
+      const { data } = await api.get(`/support/threads/${threadId}`);
+      if (data.success && data.thread) {
+        setMessages(data.thread.messages || []);
+        setThreadStatus(data.thread.status);
       }
-    } catch (e) {}
-
-    // 2. Load or Create Thread
-    let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
-
-    if (!thread) {
-      thread = await SupportThread.create({ 
-        userId: user ? String(user.id) : null, status: THREAD_STATUS.AI, aiEnabled: true 
-      });
-    } else if (thread.status === THREAD_STATUS.RESOLVED) {
-      await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
+    } catch (err) {
+      // If thread isn't found (deleted from DB), clear the local storage
+      localStorage.removeItem('support_thread_id');
+      console.error('Failed to load thread history');
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
 
-    // 3. Save Customer Message
-    await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
+  // 🔥 2. ON MOUNT: CHECK FOR EXISTING CHAT IF REFRESHED
+  useEffect(() => {
+    const savedThreadId = localStorage.getItem('support_thread_id');
+    fetchThread(savedThreadId);
+  }, [fetchThread]);
 
-    // 4. MUTE CHECK: If Admin is active or Ticket is already Raised, AI stays quiet
-    if (!thread.aiEnabled || [THREAD_STATUS.NEEDS_ADMIN, THREAD_STATUS.HUMAN_ACTIVE].includes(thread.status)) {
-      await thread.update({ status: thread.status === THREAD_STATUS.AI ? THREAD_STATUS.NEEDS_ADMIN : thread.status });
-      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
-      const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-      return res.json({ success: true, thread: { ...thread.toJSON(), messages } });
-    }
-
-    // 5. BULLETPROOF MEMORY: Check conversation history instead of database JSON metadata
-    const previousMessages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'DESC']] });
+  // 🔥 3. SOCKET CONNECTION: AUTO-UPDATE WITHOUT REFRESHING
+  useEffect(() => {
+    if (!socket) return;
     
-    // Check if the bot ALREADY asked for proof in this conversation
-    const botAlreadyApologized = previousMessages.some(m => 
-      m.senderType === 'assistant' && m.body.includes('Please explain your problem clearly')
-    );
+    const handleSupportUpdate = (payload) => {
+      const currentThreadId = localStorage.getItem('support_thread_id');
+      if (payload && payload.threadId === currentThreadId) {
+        fetchThread(currentThreadId); // Silently fetch new messages when admin replies
+      }
+    };
 
-    // 6. SIMPLE EMPATHETIC LOGIC
-    let reply = "";
-    let escalate = false;
-    const text = rawMessage.toLowerCase();
-    const isGreeting = /^(hi|hello|hey|good morning|good evening|namaste)( there)?$/i.test(text.replace(/[^a-z ]/g, '').trim());
+    socket.on('supportUpdated', handleSupportUpdate);
+    return () => socket.off('supportUpdated', handleSupportUpdate);
+  }, [socket, fetchThread]);
 
-    if (botAlreadyApologized) {
-      // The bot already asked for proof. This current message IS the proof. Raise the ticket!
-      const ticketId = generateTicketId();
-      reply = `Thank you for providing the details. 🙏\n\nI have successfully raised a support ticket for you (**#${ticketId}**). I am forwarding this entire chat and your proof directly to the store admin.\n\n*My automated replies are now paused.* The admin will connect with you here shortly and resolve your issue as soon as possible.`;
-      escalate = true;
+  // Auto-scroll when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
+      setSelectedFile(file);
+      toast.success('Image attached!');
     } else {
-      if (isGreeting) {
-        reply = "Hello! 👋 Welcome to Lakshmi Stores Support. If you are facing any issues with your order, payment, or products, please let me know.";
-      } else {
-        // First time hearing the issue. Apologize and ask for proof.
-        reply = "I am so sorry to hear that you are facing this issue. I sincerely apologize for the inconvenience. 😔\n\nPlease explain your problem clearly in your next message, and kindly use the attachment button (JPEG/PNG) to provide any proof or screenshots.\n\nOnce you reply, I will forward everything to our admin who will connect with you directly here to solve your issue.";
+      toast.error('Please select a valid JPEG or PNG image.');
+    }
+  };
+
+  const sendMessage = async (e) => {
+    e?.preventDefault();
+    if (!input.trim() && !selectedFile) return;
+
+    setIsSending(true);
+    const threadId = localStorage.getItem('support_thread_id');
+    
+    const textToSend = input.trim() ? input : "[Photo Attached]";
+
+    const payload = {
+      message: textToSend,
+      threadId: threadId,
+      photo: selectedFile ? "photo_attached_flag" : null 
+    };
+
+    // Optimistic UI update
+    const displayMsg = selectedFile && input.trim() ? `${input} [Photo Attached]` : textToSend;
+    const tempMsg = { id: Date.now(), senderType: 'customer', body: displayMsg };
+    setMessages(prev => [...prev, tempMsg]);
+    setInput('');
+    setSelectedFile(null);
+
+    try {
+      const { data } = await api.post('/support/chat', payload);
+      if (data.success && data.thread) {
+        localStorage.setItem('support_thread_id', data.thread.id);
+        setMessages(data.thread.messages || []);
+        setThreadStatus(data.thread.status);
       }
+    } catch (err) {
+      toast.error('Failed to send message.');
+      // Remove optimistic message on failure
+      setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
+    } finally {
+      setIsSending(false);
     }
+  };
 
-    // 7. Save AI Reply & Handle Escalation
-    await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support Concierge', body: reply });
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center pt-10 pb-20 px-4">
+      
+      <div className="w-full max-w-3xl mb-6 text-center">
+        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 mb-2">Help & Support</h1>
+        <p className="text-gray-500 font-medium flex items-center justify-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-green-500" />
+          We are here to resolve your issues instantly.
+        </p>
+      </div>
 
-    if (escalate) {
-      await SupportThread.update({ 
-        status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: 'Customer Submitted Proof', aiEnabled: false 
-      }, { where: { id: thread.id } });
-      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
-    }
+      <div className="w-full max-w-3xl bg-white/80 backdrop-blur-xl border border-gray-200 rounded-[2rem] shadow-xl overflow-hidden flex flex-col h-[70vh]">
+        
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/50">
+          
+          {isLoading ? (
+            <div className="h-full flex items-center justify-center text-gray-400 font-bold animate-pulse">
+              Loading conversation...
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400">
+              <Bot className="w-16 h-16 mb-4 opacity-50" />
+              <p className="font-semibold">Send a message to start a support ticket.</p>
+            </div>
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} className={`flex flex-col ${msg.senderType === 'customer' ? 'items-end' : 'items-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm font-semibold leading-relaxed shadow-sm ${
+                  msg.senderType === 'customer' 
+                    ? 'bg-gray-900 text-white rounded-br-sm' 
+                    : msg.senderType === 'admin' 
+                      ? 'bg-blue-50 text-blue-900 border border-blue-200 rounded-bl-sm'
+                      : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm'
+                }`}>
+                  {msg.senderType !== 'customer' && (
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest opacity-70">
+                      {msg.senderType === 'admin' ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                      {msg.senderName || 'Support'}
+                    </div>
+                  )}
+                  {msg.body.split('\n').map((line, i) => (
+                    <span key={i}>{line}<br/></span>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
 
-    const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-    res.json({ success: true, thread: { ...thread.toJSON(), messages } });
+        {/* Input Area */}
+        <div className="bg-white border-t border-gray-100 p-4">
+          
+          {threadStatus === 'needs_admin' && (
+            <div className="mb-3 text-center text-xs font-bold text-orange-600 bg-orange-50 py-2 rounded-lg">
+              Automated responses are muted. The store admin will reply to you shortly.
+            </div>
+          )}
 
-  } catch (error) {
-    console.error('🛡️ SUPPORT ERROR:', error);
-    res.status(200).json({ success: true, fallback: true, message: "I am having trouble connecting right now, but I have notified the admin to check this chat!" });
-  }
+          <form onSubmit={sendMessage} className="flex items-center gap-3">
+            
+            <label className="cursor-pointer shrink-0 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition text-gray-500 hover:text-gray-900 relative">
+              <input type="file" accept="image/jpeg, image/png" className="hidden" onChange={handleFileChange} />
+              <ImageIcon className="w-5 h-5" />
+              {selectedFile && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+              )}
+            </label>
+
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={selectedFile ? `Attached: ${selectedFile.name}` : "Describe your issue here..."}
+              className="flex-1 h-12 bg-gray-50 border border-gray-200 rounded-xl px-4 font-medium text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+            />
+            
+            <button
+              type="submit"
+              disabled={(!input.trim() && !selectedFile) || isSending}
+              className="shrink-0 flex items-center justify-center h-12 px-6 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-// ============================================================================
-// 🛡️ ADMIN FAIL-SAFE ROUTES
-// ============================================================================
-exports.getPublicThread = async (req, res) => {
-  try {
-    const thread = await SupportThread.findByPk(req.params.id);
-    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
-    const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-    res.json({ success: true, thread: { ...(thread.dataValues || thread), messages: (messages || []).map(m => m.dataValues || m) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Failed to fetch thread.' }); }
-};
-
-exports.getThreads = async (req, res) => {
-  try {
-    const { status } = req.query;
-    const where = {};
-    if (status === 'active') { where.status = { [Op.ne]: 'resolved' }; } 
-    else if (status) { where.status = status; }
-    
-    const threads = await SupportThread.findAll({ where, order: [['updatedAt', 'DESC']], limit: 50 });
-    const serialized = [];
-    for (const t of (threads || [])) {
-       const messages = await SupportMessage.findAll({ where: { threadId: t.id }, order: [['createdAt', 'ASC']] });
-       serialized.push({ ...(t.dataValues || t), messages: (messages || []).map(m => m.dataValues || m) });
-    }
-    return res.json({ success: true, data: serialized });
-  } catch (error) { res.status(500).json({ success: false, message: 'Failed to fetch threads.' }); }
-};
-
-exports.adminReply = async (req, res) => {
-  try {
-    const message = String(req.body.message || '').trim();
-    if (!message) return res.status(400).json({ success: false, message: 'Message required.' });
-    const thread = await SupportThread.findByPk(req.params.id);
-    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
-
-    await SupportMessage.create({ threadId: thread.id, senderType: 'admin', senderName: req.user?.name || 'Support Team', body: message });
-    await SupportThread.update({ status: THREAD_STATUS.HUMAN_ACTIVE, aiEnabled: false, handledBy: req.user?.name }, { where: { id: thread.id } });
-    
-    const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.HUMAN_ACTIVE });
-    const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-    res.json({ success: true, thread: { ...(thread.dataValues || thread), messages: (messages || []).map(m => m.dataValues || m) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Failed to send reply.' }); }
-};
-
-exports.resolveThread = async (req, res) => {
-  try {
-    const thread = await SupportThread.findByPk(req.params.id);
-    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
-
-    await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and archived by the store manager.' });
-    await SupportThread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date() }, { where: { id: thread.id } });
-
-    const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
-    const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-    res.json({ success: true, thread: { ...(thread.dataValues || thread), messages: (messages || []).map(m => m.dataValues || m) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Failed to resolve thread.' }); }
-};
+export default SupportPage;

@@ -6,8 +6,8 @@ const { Op } = require('sequelize');
 const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║      LAKSHMI STORES V26 — FORTIFIED CRM SUPPORT OPERATING SYSTEM             ║
-// ║  Bulletproof Memory, Substring Product Matching, & Evidence Persistence      ║
+// ║      LAKSHMI STORES V27 — FORTIFIED CRM SUPPORT OPERATING SYSTEM             ║
+// ║  Bulletproof Memory, Safe DB Queries, & Strict Evidence Enforcement          ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
@@ -77,7 +77,7 @@ const INTENT_MODELS = {
 // ----------------------------------------------------------------------------
 // 🎭 [ENGINE] CUSTOMER EMOTION & FRUSTRATION
 // ----------------------------------------------------------------------------
-const analyzeEmotionV26 = (text) => {
+const analyzeEmotionV27 = (text) => {
   let score = 0; let mood = 'Neutral';
   const lex = { 'worst': -4, 'terrible': -4, 'scam': -4, 'fraud': -4, 'pathetic': -4, 'bad': -2, 'angry': -2, 'frustrated': -2, 'wrong': -1, 'good': 1, 'great': 2, 'thankful': 3 };
   
@@ -96,9 +96,9 @@ const analyzeEmotionV26 = (text) => {
 };
 
 // ----------------------------------------------------------------------------
-// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & SUBSTRING MATCHING
+// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & SAFE SUBSTRING MATCHING
 // ----------------------------------------------------------------------------
-const extractEntitiesV26 = async (normalizedText, tokens, memory) => {
+const extractEntitiesV27 = async (normalizedText, tokens, memory) => {
   const entities = { products: [] };
   const pendingQuestions = memory.pendingQuestions || [];
 
@@ -124,9 +124,9 @@ const extractEntitiesV26 = async (normalizedText, tokens, memory) => {
 
   if (/\b\d{10}\b/.test(normalizedText)) entities.authMethod = normalizedText.match(/\b\d{10}\b/)[0];
 
-  // BULLETPROOF PRODUCT SEARCH (Substring catch for sizing/variants)
+  // 🛡️ UNIVERSAL SAFE PRODUCT DB SEARCH (Fixes the "Sprite Not Found" Bug)
   try {
-    const dbProducts = await Product.findAll({ where: { isActive: true }, attributes: ['id', 'name', 'price', 'real_stock', 'buffer', 'category', 'tags'] });
+    const dbProducts = await Product.findAll(); // Unrestricted safe fetch
     dbProducts.forEach(dbProd => {
       const prodName = String(dbProd.name || '').toLowerCase();
       const tags = String(dbProd.tags || '').toLowerCase();
@@ -134,12 +134,12 @@ const extractEntitiesV26 = async (normalizedText, tokens, memory) => {
       let isMatch = false;
       if (normalizedText.includes(prodName)) isMatch = true;
       else if (tags && tags.split(',').some(tag => normalizedText.includes(tag.trim()))) isMatch = true;
-      // This guarantees "sprite" catches "SPRITE (2L)" and "maggi" catches "MAGGI NOODLES (70G)"
+      // Guarantee matching items like "Sprite" to "SPRITE (2L)"
       else if (tokens.some(t => t.length >= 3 && prodName.includes(t))) isMatch = true;
 
       if (isMatch) entities.products.push(dbProd);
     });
-  } catch (e) { /* Silent */ }
+  } catch (e) { console.error("Product fetch error:", e); }
 
   return entities;
 };
@@ -195,15 +195,15 @@ const determineRootCause = (activeIssues, evidence, dbData) => {
 };
 
 // ----------------------------------------------------------------------------
-// 🧠 [SYSTEM] V26 ORCHESTRATION PIPELINE
+// 🧠 [SYSTEM] V27 ORCHESTRATION PIPELINE
 // ----------------------------------------------------------------------------
 const processPipeline = async (rawMessage, memory, user) => {
   let text = String(rawMessage).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
   Object.entries(REGIONAL_MAP).forEach(([slang, eng]) => { text = text.replace(new RegExp(`\\b${slang}\\b`, 'g'), eng); });
 
   const tokens = text.split(' ').filter(w => !STOP_WORDS.has(w) && w.length > 1);
-  const emotion = analyzeEmotionV26(text);
-  const entities = await extractEntitiesV26(text, tokens, memory);
+  const emotion = analyzeEmotionV27(text);
+  const entities = await extractEntitiesV27(text, tokens, memory);
 
   let intents = [];
   Object.entries(INTENT_MODELS).forEach(([intentName, model]) => {
@@ -215,7 +215,7 @@ const processPipeline = async (rawMessage, memory, user) => {
   if (intents.length > 1) intents = intents.filter(i => i.intent !== 'greeting');
   intents.sort((a, b) => b.tier !== a.tier ? b.tier - a.tier : b.confidence - a.confidence);
 
-  // EVIDENCE TRAP: Forces the bot to accept answers instead of defaulting to a greeting
+  // 🛡️ EVIDENCE TRAP: Catches inputs like "gpay, 100, no" and prevents standard greetings
   if (memory.currentState === STATES.COLLECTING_EVIDENCE && !intents.some(i => i.tier >= 3)) {
     intents.unshift({ intent: 'provide_evidence', confidence: 100, tier: 2 });
   }
@@ -301,11 +301,17 @@ const formulateResponse = (state, memory) => {
   if (maxTier >= 2) {
     const dbText = state.verification.dbReport.length > 0 ? `\n\n**Database Verification:**\n${state.verification.dbReport.join('\n')}` : '';
 
-    if (state.investigationScore < 100 && !state.intents.find(i => i.intent === 'human_request')) {
+    // 🛡️ STRICT EVIDENCE ENFORCEMENT: Never escalate without 100% evidence, even if a human is requested
+    if (state.investigationScore < 100) {
       const q = generateDynamicQuestions(state.missingEvidence);
+      const isHumanReq = state.intents.some(i => i.intent === 'human_request');
+      const prefix = isHumanReq 
+        ? "I am preparing to transfer your case to a human manager. To ensure they can resolve this instantly, please provide the missing details:"
+        : `I am investigating this anomaly for you.${dbText}\n\nTo construct a complete diagnostic report for management, I require the following evidence (Case File: ${state.investigationScore}% Complete):`;
+      
       return {
         type: 'cross_question', state: STATES.COLLECTING_EVIDENCE,
-        reply: `I am investigating this anomaly for you.${dbText}\n\nTo construct a complete diagnostic report for management, I require the following evidence (Case File: ${state.investigationScore}% Complete):\n\n${q.join('\n')}`
+        reply: `${prefix}\n\n${q.join('\n')}`
       };
     }
 
@@ -358,8 +364,11 @@ exports.chat = async (req, res) => {
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
     }
 
-    // BULLETPROOF MEMORY INITIALIZATION (Fixes legacy thread wipes)
-    const memory = (thread.metadata || {}).memory || {};
+    // 🛡️ BULLETPROOF MEMORY PARSING (Fixes JSON Wipe Bug)
+    let meta = {};
+    try { meta = typeof thread.metadata === 'string' ? JSON.parse(thread.metadata) : (thread.metadata || {}); } catch(e) { meta = {}; }
+    const memory = meta.memory || {};
+    
     memory.conversationId = memory.conversationId || generateTicketId();
     memory.currentState = memory.currentState || STATES.NEW;
     memory.activeIssues = memory.activeIssues || [];
@@ -378,7 +387,7 @@ exports.chat = async (req, res) => {
       return res.json({ success: true, thread });
     }
 
-    // EXECUTE V26 CRM
+    // EXECUTE V27 CRM
     const state = await processPipeline(rawMessage, memory, user);
     const decision = await formulateResponse(state, memory);
 
@@ -396,25 +405,26 @@ exports.chat = async (req, res) => {
     if (decision.reply) await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: decision.reply });
     if (decision.copilot) await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'Admin Copilot', body: decision.copilot, isHiddenFromCustomer: true });
 
+    // 🛡️ BULLETPROOF DATABASE COMMIT
     if (decision.type === 'escalate') {
-      await thread.update({ 
+      await SupportThread.update({ 
         status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', 
         escalationReason: `${decision.level} [${decision.ticket || updatedMemory.conversationId}]`, aiEnabled: false, metadata: { memory: updatedMemory }
-      });
+      }, { where: { id: thread.id } });
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
     } else if (decision.type === 'resolve') {
       updatedMemory.activeIssues = [];
-      await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: updatedMemory } });
+      await SupportThread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: updatedMemory } }, { where: { id: thread.id } });
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.RESOLVED });
     } else {
-      await thread.update({ metadata: { memory: updatedMemory } });
+      await SupportThread.update({ metadata: { memory: updatedMemory } }, { where: { id: thread.id } });
     }
 
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
     res.json({ success: true, thread: { ...thread.toJSON(), messages } });
 
   } catch (error) {
-    console.error('🛡️ V26 KERNEL PANIC:', error);
+    console.error('🛡️ V27 KERNEL PANIC:', error);
     res.status(200).json({ success: true, fallback: true, message: "CRITICAL EXCEPTION. Migrating session to live administration console." });
   }
 };
@@ -456,7 +466,7 @@ exports.adminReply = async (req, res) => {
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     await SupportMessage.create({ threadId: thread.id, senderType: 'admin', senderName: req.user?.name || 'Support Team', body: message });
-    await thread.update({ status: THREAD_STATUS.HUMAN_ACTIVE, aiEnabled: false, handledBy: req.user?.name });
+    await SupportThread.update({ status: THREAD_STATUS.HUMAN_ACTIVE, aiEnabled: false, handledBy: req.user?.name }, { where: { id: thread.id } });
     
     const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
@@ -470,7 +480,7 @@ exports.resolveThread = async (req, res) => {
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
     await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and archived.' });
-    await thread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: { currentState: STATES.RESOLVED, activeIssues: [] } } });
+    await SupportThread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: { currentState: STATES.RESOLVED, activeIssues: [] } } }, { where: { id: thread.id } });
 
     const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });

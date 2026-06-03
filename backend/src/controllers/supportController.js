@@ -3,401 +3,168 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
-const { Product, Order, OrderItem, User, Notification, StoreSetting, ItemRequest, SupportThread, SupportMessage } = require('../models');
+const { Product, Order, User, SupportThread, SupportMessage } = require('../models');
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║      LAKSHMI STORES V31 — TRUE ENTERPRISE CRM INVESTIGATION ENGINE           ║
-// ║  Strict Workflow Locking, SLA Math, DB Verification & Crash-Proof Memory     ║
+// ║      LAKSHMI STORES V32 — THE EMPATHETIC HUMAN CONCIERGE                     ║
+// ║  Warm Greetings, Friendly Product Search, & Seamless Admin Handoff           ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
 const generateTicketId = () => `LS-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
 // ----------------------------------------------------------------------------
-// 🚦 [ARCHITECTURE] THE EXACT CRM WORKFLOWS & SCHEMAS
+// 🗣️ [LINGUISTICS] TRANSLATIONS & ALIASES
 // ----------------------------------------------------------------------------
-const WORKFLOWS = {
-  NONE: 'NONE',
-  PAYMENT_ISSUE: 'PAYMENT_ISSUE',
-  ORDER_NOT_PACKED: 'ORDER_NOT_PACKED',
-  MISSING_ORDER: 'MISSING_ORDER',
-  WRONG_ITEM: 'WRONG_ITEM',
-  DAMAGED_PRODUCT: 'DAMAGED_PRODUCT',
-  OTP_ISSUE: 'OTP_ISSUE',
-  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
-  HACKED_ACCOUNT: 'HACKED_ACCOUNT',
-  REFUND_STATUS: 'REFUND_STATUS',
-  WEBSITE_LOADING: 'WEBSITE_LOADING',
-  PRODUCT_SEARCH: 'PRODUCT_SEARCH'
+const REGIONAL_MAP = {
+  'varala': 'missing', 'varla': 'missing', 'kedaikala': 'missing', 'illai': 'no', 
+  'aagala': 'failed', 'agala': 'failed', 'mudiyala': 'failed', 'theriyala': 'unknown',
+  'panam': 'money', 'pochu': 'lost', 'kaasu': 'money', 'cash': 'money', 'cut': 'deducted', 'aachu': 'happened',
+  'manager venum': 'human request', 'call pannu': 'human request', 'pesanum': 'speak',
+  'ayindi': 'happened', 'ayipoindi': 'completed', 'ledhu': 'missing', 'raaledu': 'missing',
+  'ravatledu': 'not coming', 'avvatledu': 'failed', 'paise': 'money', 'dabulu': 'money'
 };
 
-const EVIDENCE_SCHEMA = {
-  [WORKFLOWS.PAYMENT_ISSUE]: ['paymentMethod', 'amount', 'transactionDate'],
-  [WORKFLOWS.ORDER_NOT_PACKED]: ['orderId'],
-  [WORKFLOWS.MISSING_ORDER]: ['orderId', 'orderDate'],
-  [WORKFLOWS.WRONG_ITEM]: ['orderId', 'expectedItem', 'receivedItem', 'hasPhoto'],
-  [WORKFLOWS.DAMAGED_PRODUCT]: ['orderId', 'hasPhoto'],
-  [WORKFLOWS.OTP_ISSUE]: ['authMethod'],
-  [WORKFLOWS.REFUND_STATUS]: ['orderId'],
-  [WORKFLOWS.WEBSITE_LOADING]: ['pageName']
-};
-
-const PAYMENT_GATEWAYS = ['PHONEPE', 'GPAY', 'PAYTM', 'UPI', 'RAZORPAY', 'CASHFREE', 'CARD'];
-
-// ----------------------------------------------------------------------------
-// 📚 [ONTOLOGY] WORKFLOW DETECTION
-// ----------------------------------------------------------------------------
-const detectWorkflow = (text) => {
-  if (/\b(hacked|stolen|unauthorized|fraud|scam)\b/i.test(text)) return WORKFLOWS.HACKED_ACCOUNT;
-  if (/\b(money deducted|charged|paid but|payment failed|panam pochu|cut aachu)\b/i.test(text)) return WORKFLOWS.PAYMENT_ISSUE;
-  if (/\b(not packed|still preparing|taking too long|delayed|late)\b/i.test(text)) return WORKFLOWS.ORDER_NOT_PACKED;
-  if (/\b(not received|never arrived|missing order|order varala|raaledu)\b/i.test(text)) return WORKFLOWS.MISSING_ORDER;
-  if (/\b(wrong item|different item|instead of)\b/i.test(text)) return WORKFLOWS.WRONG_ITEM;
-  if (/\b(damaged|broken|leaking|spoiled|expired)\b/i.test(text)) return WORKFLOWS.DAMAGED_PRODUCT;
-  if (/\b(otp|verification code|otp varala|code raaledu)\b/i.test(text)) return WORKFLOWS.OTP_ISSUE;
-  if (/\b(locked|blocked|can't login|login aagala)\b/i.test(text)) return WORKFLOWS.ACCOUNT_LOCKED;
-  if (/\b(where is my refund|refund status)\b/i.test(text)) return WORKFLOWS.REFUND_STATUS;
-  if (/\b(website|app|loading forever|crash|stuck)\b/i.test(text)) return WORKFLOWS.WEBSITE_LOADING;
-  if (/\b(price|stock|do you have|available)\b/i.test(text)) return WORKFLOWS.PRODUCT_SEARCH;
-  return WORKFLOWS.NONE;
+const normalizeText = (text) => {
+  let normalized = String(text).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  Object.entries(REGIONAL_MAP).forEach(([slang, eng]) => {
+    normalized = normalized.replace(new RegExp(`\\b${slang}\\b`, 'g'), eng);
+  });
+  return normalized;
 };
 
 // ----------------------------------------------------------------------------
-// 🧮 [ENGINE] DEEP ENTITY EXTRACTION & SUBSTRING PRODUCT MATCHING
+// 🛒 [ENGINE] FRIENDLY PRODUCT SEARCH
 // ----------------------------------------------------------------------------
-const extractEntities = async (text, memory) => {
-  const entities = {};
-  
-  // Order ID
-  const orderRegex = /\b\d{2}-[a-zA-Z0-9]{4,6}\b/gi;
-  const matches = text.match(orderRegex);
-  if (matches) entities.orderId = matches[0].toUpperCase();
-  else if (/\b(100\d{1,4})\b/.test(text)) entities.orderId = text.match(/\b(100\d{1,4})\b/)[0];
-
-  // Amount
-  const amountRegex = /(?:₹|rs\.?|rupees?)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/gi;
-  let amtMatch = amountRegex.exec(text);
-  if (amtMatch && !entities.orderId) entities.amount = amtMatch[1];
-
-  // Payment Method
-  PAYMENT_GATEWAYS.forEach(gw => { if (text.toUpperCase().includes(gw)) entities.paymentMethod = gw; });
-  if (/\b(google pay|g pay)\b/i.test(text)) entities.paymentMethod = 'GPAY';
-
-  // Dates
-  if (/\b(yesterday|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(text)) {
-    entities.transactionDate = text.match(/\b(yesterday|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)[0].toLowerCase();
-    entities.orderDate = entities.transactionDate;
-  }
-
-  // Auth & Pages
-  if (/\b(phone|email)\b/i.test(text)) entities.authMethod = text.match(/\b(phone|email)\b/i)[0].toLowerCase();
-  if (/\b(home|login|cart|checkout)\b/i.test(text)) entities.pageName = text.match(/\b(home|login|cart|checkout)\b/i)[0].toLowerCase();
-  
-  // Photo proof
-  if (/\b(photo|attached|uploaded|pic|image|yes)\b/i.test(text)) entities.hasPhoto = true;
-
-  // Real Substring Product Intelligence
-  entities.products = [];
+const findProductFriendly = async (text) => {
   try {
-    const dbProducts = await Product.findAll({ attributes: ['id', 'name', 'price', 'real_stock', 'buffer'] });
-    const textLower = text.toLowerCase();
-    const tokens = textLower.split(' ').filter(w => w.length > 2);
+    const dbProducts = await Product.findAll({ attributes: ['id', 'name', 'price', 'real_stock', 'buffer', 'tags'] });
+    const tokens = text.split(' ').filter(w => w.length > 2);
     
-    dbProducts.forEach(p => {
+    for (const p of dbProducts) {
       const pName = String(p.name).toLowerCase();
-      // Match if exact name is included, OR if product name contains the token (e.g. 'sprite' inside 'SPRITE (2L)')
-      if (textLower.includes(pName) || tokens.some(t => pName.includes(t))) {
-        entities.products.push(p);
-      }
-    });
-  } catch (e) { /* Silent */ }
-
-  if (memory.activeWorkflow === WORKFLOWS.WRONG_ITEM) {
-    if (entities.products.length > 0) entities.receivedItem = entities.products[0].name;
-    const expectedMatch = text.match(/instead of (.*)/i);
-    if (expectedMatch) entities.expectedItem = expectedMatch[1].trim();
-  }
-
-  return entities;
-};
-
-// ----------------------------------------------------------------------------
-// 🔬 [DECISION ENGINE] REAL DATABASE VERIFICATION LOGIC
-// ----------------------------------------------------------------------------
-const executeVerification = async (workflow, evidence, user) => {
-  let reply = "";
-  let escalate = false;
-
-  switch (workflow) {
-    case WORKFLOWS.PAYMENT_ISSUE:
-      // Real DB check logic simulation for payment
-      try {
-        const matchingOrder = await Order.findOne({ 
-          where: { orderAmount: evidence.amount, paymentMethod: evidence.paymentMethod || 'ONLINE' } 
-        });
-        
-        if (matchingOrder || evidence.transactionDate === 'yesterday') {
-          reply = `I found a matching failed payment.\n\nAmount: ₹${evidence.amount}\nGateway: ${evidence.paymentMethod}\n\nThis transaction qualifies for a refund review. I am forwarding this to the manager.`;
-          escalate = true;
-        } else {
-          reply = `I could not find a matching failed transaction in our gateway logs.\n\nPlease upload:\n1. Payment screenshot\n2. UTR Number\n\nOnce uploaded, I will escalate to billing.`;
-          escalate = true;
-        }
-      } catch (e) { reply = "System error verifying gateway logs. Escalating directly."; escalate = true; }
-      break;
-
-    case WORKFLOWS.ORDER_NOT_PACKED:
-      try {
-        const order = await Order.findOne({ where: { orderToken: evidence.orderId } });
-        if (order) {
-          const delayHours = (Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60);
-          if (delayHours > 4) {
-            reply = `I apologize.\n\nYour order #${evidence.orderId} has remained pending for ${delayHours.toFixed(1)} hours. This exceeds our packing SLA.\n\nOptions:\n1. Continue waiting\n2. Cancel order\n3. Request refund\n\nPlease let me know your choice.`;
-            escalate = true;
-          } else {
-            reply = `Your order #${evidence.orderId} is currently being processed. It is well within our standard packing timeline of 4 hours.`;
-          }
-        } else {
-          reply = `I could not find Order #${evidence.orderId}. Please verify your token ID.`;
-        }
-      } catch (e) { reply = "Error verifying order. Escalating."; escalate = true; }
-      break;
-
-    case WORKFLOWS.MISSING_ORDER:
-      reply = `Order #${evidence.orderId} is marked as dispatched in our Delivery Logs.\n\nDid you personally receive it, or was it left at a security desk? I am escalating to the dispatch manager to trace the rider.`;
-      escalate = true;
-      break;
-
-    case WORKFLOWS.WRONG_ITEM:
-      reply = `I have verified the discrepancy.\n\nExpected: ${evidence.expectedItem || 'Unknown'}\nReceived: ${evidence.receivedItem || 'Unknown'}\n\nI am escalating this to the floor manager for a replacement or immediate wallet refund.`;
-      escalate = true;
-      break;
-
-    case WORKFLOWS.DAMAGED_PRODUCT:
-      if (!evidence.hasPhoto) {
-        reply = "Please upload a photo of the damaged product so I can attach it to the manager's docket.";
-      } else {
-        reply = `Photo evidence attached to Case File.\n\nI am sending this directly to the manager for a replacement.`;
-        escalate = true;
-      }
-      break;
-
-    case WORKFLOWS.OTP_ISSUE:
-      reply = `We are checking the logs for your ${evidence.authMethod}.\n\nIt appears to be an SMS provider issue. I have escalated this to the technical team to whitelist your number.`;
-      escalate = true;
-      break;
-
-    case WORKFLOWS.WEBSITE_LOADING:
-      reply = `We have tracked error logs for the ${evidence.pageName} page.\n\nThis is likely a frontend API timeout. Our engineering team has been notified.`;
-      escalate = true;
-      break;
+      const pTags = String(p.tags || '').toLowerCase();
       
-    case WORKFLOWS.REFUND_STATUS:
-      reply = `Refund request for Order #${evidence.orderId} is currently pending approval. I will bump the priority for the store manager right now.`;
-      escalate = true;
-      break;
-
-    default:
-      reply = "Investigation complete. Handing over to manager.";
-      escalate = true;
-  }
-
-  return { reply, escalate };
+      // Match exact, by tag, or by word overlap (e.g. "sprite" matches "SPRITE (2L)")
+      if (text.includes(pName) || (pTags && pTags.split(',').some(tag => text.includes(tag.trim()))) || tokens.some(t => pName.includes(t))) {
+        return p;
+      }
+    }
+  } catch (e) { console.error("Product Search Error:", e); }
+  return null;
 };
 
 // ----------------------------------------------------------------------------
-// 🗣️ [GENERATOR] STRICT DYNAMIC QUESTIONS
-// ----------------------------------------------------------------------------
-const askMissingEvidence = (workflow, missing) => {
-  let questions = [];
-  if (workflow === WORKFLOWS.PAYMENT_ISSUE) {
-    if (missing.includes('paymentMethod')) questions.push("1. Payment method?");
-    if (missing.includes('amount')) questions.push("2. Amount?");
-    if (missing.includes('transactionDate')) questions.push("3. Payment date (e.g. today/yesterday)?");
-  } else if (workflow === WORKFLOWS.WRONG_ITEM) {
-    if (missing.includes('orderId')) questions.push("1. Order ID?");
-    if (missing.includes('expectedItem')) questions.push("2. Expected item?");
-    if (missing.includes('receivedItem')) questions.push("3. Received item?");
-    if (missing.includes('hasPhoto')) questions.push("4. Please upload a photo.");
-  } else if (missing.includes('orderId')) {
-    questions.push("• Please provide your Order ID.");
-  } else if (missing.includes('hasPhoto')) {
-    questions.push("• Please upload a photo of the item.");
-  } else if (missing.includes('authMethod')) {
-    questions.push("• Are you logging in via:\n1. Phone\n2. Email");
-  } else if (missing.includes('pageName')) {
-    questions.push("• Which page?\n1. Home\n2. Login\n3. Cart\n4. Checkout");
-  }
-  return questions;
-};
-
-// ----------------------------------------------------------------------------
-// 🚀 [SYSTEM] THE V31 CONTROLLER EXECUTION
+// 🚀 [CONTROLLER] MAIN CHAT LOGIC
 // ----------------------------------------------------------------------------
 exports.chat = async (req, res) => {
   try {
     const rawMessage = String(req.body.message || '').trim().slice(0, 1500);
-    if (!rawMessage) return res.status(400).json({ success: false, message: 'Payload required.' });
+    if (!rawMessage) return res.status(400).json({ success: false, message: 'Message cannot be empty.' });
 
+    // 1. Identify User
     let user = null;
     try {
       const header = String(req.headers.authorization || '');
-      if (header.startsWith('Bearer ')) user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
-    } catch (e) { /* Guest */ }
+      if (header.startsWith('Bearer ')) {
+        user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
+      }
+    } catch (e) { /* Guest mode */ }
 
-    // 1. Thread Initialization
+    // 2. Load or Create Thread & Memory
     let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
-    
-    // 🛡️ CRASH-PROOF MEMORY PARSER (Fixes the undefined/null reading crash)
-    let parsedMeta = {};
-    if (thread && thread.metadata) {
-      if (typeof thread.metadata === 'string') {
-        try { parsedMeta = JSON.parse(thread.metadata); } catch(e) { parsedMeta = {}; }
-      } else { parsedMeta = thread.metadata; }
-    }
+    let memory = { state: 'NORMAL' };
 
-    let memory = parsedMeta.memory || {};
-    memory.conversationId = memory.conversationId || generateTicketId();
-    memory.activeWorkflow = memory.activeWorkflow || WORKFLOWS.NONE;
-    memory.evidence = memory.evidence || {};
-    memory.timeline = Array.isArray(memory.timeline) ? memory.timeline : [];
+    if (thread && thread.metadata) {
+      try { memory = typeof thread.metadata === 'string' ? JSON.parse(thread.metadata).memory : thread.metadata.memory; } catch (e) {}
+    }
 
     if (!thread) {
       thread = await SupportThread.create({ 
         userId: user ? String(user.id) : null, status: THREAD_STATUS.AI, aiEnabled: true, 
-        metadata: { memory } 
+        metadata: { memory: { state: 'NORMAL' } } 
       });
     } else if (thread.status === THREAD_STATUS.RESOLVED) {
+      // If customer chats on a closed ticket, politely reopen it
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
-      memory.timeline.push(`[${new Date().toISOString()}] Reopening Case.`);
+      memory.state = 'NORMAL';
     }
 
-    memory.timeline.push(`[${new Date().toISOString()}] User: ${rawMessage.substring(0, 30)}`);
-
-    // 2. Escape Command
-    if (/\b(cancel|stop|nevermind|forget it|clear)\b/i.test(rawMessage)) {
-      memory.activeWorkflow = WORKFLOWS.NONE;
-      memory.evidence = {};
-      await SupportThread.update({ metadata: { memory } }, { where: { id: thread.id } });
-      await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
-      const reply = await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: "Investigation cancelled. How can I help you today?" });
-      const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-      return res.json({ success: true, thread: { ...thread.toJSON(), messages } });
-    }
-
-    // 3. Security Override
-    if (detectWorkflow(rawMessage) === WORKFLOWS.HACKED_ACCOUNT || detectWorkflow(rawMessage) === WORKFLOWS.ACCOUNT_LOCKED) {
-      await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
-      const reply = `🚨 **SECURITY ALERT**\nStandard workflows frozen. Escalating to ownership directly.`;
-      await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: reply });
-      await SupportThread.update({ status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: 'Level 5 - Security', aiEnabled: false, metadata: { memory } }, { where: { id: thread.id } });
-      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
-      const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
-      return res.json({ success: true, thread: { ...thread.toJSON(), messages } });
-    }
-
-    // 4. WORKFLOW LOCKING LOGIC
-    let currentWorkflow = memory.activeWorkflow;
-    let isWorkflowSwitch = false;
-    const detected = detectWorkflow(rawMessage);
-
-    if (currentWorkflow === WORKFLOWS.NONE) {
-      if (detected !== WORKFLOWS.NONE && detected !== WORKFLOWS.PRODUCT_SEARCH) {
-        currentWorkflow = detected;
-        memory.activeWorkflow = currentWorkflow;
-        memory.timeline.push(`[${new Date().toISOString()}] Workflow Locked: ${currentWorkflow}`);
-      }
-    } else if (detected !== WORKFLOWS.NONE && detected !== currentWorkflow) {
-      isWorkflowSwitch = true;
-    }
-
+    // 3. Save Customer Message
     await SupportMessage.create({ threadId: thread.id, senderType: 'customer', body: rawMessage });
 
-    // 5. Unlocked Product Intelligence
-    if (currentWorkflow === WORKFLOWS.NONE || (currentWorkflow === WORKFLOWS.PRODUCT_SEARCH)) {
-      const entities = await extractEntities(rawMessage, memory);
-      let replyText = "Hello! 👋 I am the Lakshmi Stores CRM. How can I assist you today?";
-      
-      if (entities.products.length > 0) {
-        const p = entities.products[0];
-        const stock = Math.max(0, (Number(p.real_stock) || 0) - (Number(p.buffer) || 2));
-        replyText = `**Product Intelligence:**\n• Item: **${p.name}**\n• Price: **₹${p.price}**\n• Live Stock: **${stock} units**`;
-        memory.lastProduct = { name: p.name, price: p.price, stock: stock };
-      } else if (memory.lastProduct && /\b(price|stock|add)\b/i.test(rawMessage)) {
-        replyText = `Regarding **${memory.lastProduct.name}**: It costs ₹${memory.lastProduct.price} and we have ${memory.lastProduct.stock} left.`;
-      } else if (rawMessage.length > 4 && detected === WORKFLOWS.PRODUCT_SEARCH) {
-        replyText = "I searched our inventory but couldn't find that item. Would you like me to flag this for procurement?";
-      }
-
-      await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: replyText });
-      await SupportThread.update({ metadata: { memory } }, { where: { id: thread.id } });
+    // 4. MUTE CHECK: If Admin is active or Ticket is Raised, AI stays quiet
+    if (!thread.aiEnabled || [THREAD_STATUS.NEEDS_ADMIN, THREAD_STATUS.HUMAN_ACTIVE].includes(thread.status)) {
+      await thread.update({ status: thread.status === THREAD_STATUS.AI ? THREAD_STATUS.NEEDS_ADMIN : thread.status });
+      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
       const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
       return res.json({ success: true, thread: { ...thread.toJSON(), messages } });
     }
 
-    // 6. Evidence Collection within Locked Workflow
-    const entities = await extractEntities(rawMessage, memory);
-    
-    // Explicit mappings for text answers
-    if (currentWorkflow === WORKFLOWS.OTP_ISSUE && /\b(1|phone)\b/i.test(rawMessage)) entities.authMethod = 'phone';
-    if (currentWorkflow === WORKFLOWS.OTP_ISSUE && /\b(2|email)\b/i.test(rawMessage)) entities.authMethod = 'email';
-    
-    memory.evidence = { ...(memory.evidence || {}), ...entities };
-    
-    const requiredEvidence = EVIDENCE_SCHEMA[currentWorkflow] || [];
-    let missingEvidence = [];
-    requiredEvidence.forEach(req => { if (!memory.evidence[req]) missingEvidence.push(req); });
+    // 5. AI CONCIERGE LOGIC
+    const text = normalizeText(rawMessage);
+    let replyText = "";
+    let updateStateTo = memory.state;
+    let escalateToAdmin = false;
 
-    let decision = {};
-
-    // 7. Enforce Workflow Focus
-    if (isWorkflowSwitch) {
-      decision = { type: 'cross_question', reply: `I am currently investigating your ${currentWorkflow.replace('_', ' ').toLowerCase()}.\n\nDO NOT switch topics. Please provide:\n\n${askMissingEvidence(currentWorkflow, missingEvidence).join('\n')}` };
-    } else if (missingEvidence.length > 0) {
-      const isFirstAsk = Object.keys(memory.evidence).length === 0 && !isWorkflowSwitch;
-      const prefix = isFirstAsk ? `I can investigate this ${currentWorkflow.replace('_', ' ').toLowerCase()}.\n\nPlease provide:` : `I still need:`;
-      decision = { type: 'cross_question', reply: `${prefix}\n\n${askMissingEvidence(currentWorkflow, missingEvidence).join('\n')}` };
-    } else {
-      // 8. Execute Database Investigation
-      memory.timeline.push(`[${new Date().toISOString()}] Executing DB Verification for ${currentWorkflow}`);
-      const dbResult = await executeVerification(currentWorkflow, memory.evidence, user);
-      
-      const adminBrief = `**TICKET #${memory.conversationId}**\n- **Workflow:** ${currentWorkflow}\n- **Evidence:** ${JSON.stringify(memory.evidence)}\n- **Action Required:** ${dbResult.escalate ? 'YES' : 'NO'}`;
-
-      decision = {
-        type: dbResult.escalate ? 'escalate' : 'resolve',
-        reply: dbResult.reply,
-        copilot: adminBrief
-      };
+    // --- STATE: WAITING FOR CUSTOMER PROOF ---
+    if (memory.state === 'AWAITING_PROOF') {
+      const ticketId = generateTicketId();
+      replyText = `Thank you so much for providing those details. 🙏\n\nI have successfully raised a support ticket for you (Ticket **#${ticketId}**). I have forwarded all your messages and proof directly to our store manager.\n\nI am now muting my automated replies so the admin can review your case and message you directly here to clear your issue as soon as possible. You can continue to send messages or upload any extra photos in this chat. We will fix this for you!`;
+      updateStateTo = 'ESCALATED';
+      escalateToAdmin = true;
+    } 
+    // --- STATE: NORMAL CONVERSATION ---
+    else {
+      // A. Complaint / Issue Detected
+      if (/\b(deducted|charged|failed|missing|varala|wrong|damaged|broken|leaking|spoiled|otp|locked|hacked|refund|manager|human|issue|problem|worst)\b/i.test(text)) {
+        replyText = `I am so sorry to hear you are facing this issue. I completely understand how frustrating that can be. 😔\n\nTo help me get this resolved for you immediately, could you please reply with your **Order ID** and upload any **photos or screenshots** of the issue?\n\nOnce you provide that, I will hand this chat straight over to the store manager.`;
+        updateStateTo = 'AWAITING_PROOF';
+      } 
+      // B. Greetings
+      else if (/\b(hi|hello|hey|good morning|good evening|thanks|ok)\b/i.test(text) && text.length < 15) {
+        replyText = `Hello! 👋 Welcome to Lakshmi Stores. I am your store assistant. How can I help you with your shopping today?`;
+      } 
+      // C. Product Search
+      else if (/\b(price|stock|do you have|available|need|want)\b/i.test(text) || text.length > 2) {
+        const product = await findProductFriendly(text);
+        if (product) {
+          const stock = Math.max(0, (Number(product.real_stock) || 0) - (Number(product.buffer) || 2));
+          replyText = `Yes, we have **${product.name}**! 🎉\n\nIt costs **₹${product.price}** and we currently have **${stock} units** available in stock. Would you like me to help you find anything else?`;
+        } else {
+          replyText = `I just checked our shelves, but I couldn't find an exact match for that right now. Could you check the spelling, or is there another brand you'd like me to look for?`;
+        }
+      }
+      // D. Fallback
+      else {
+        replyText = `I'm here to help! Are you looking for a specific product, or do you need help with an order issue?`;
+      }
     }
 
-    // 9. Save and Dispatch
-    await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Support CRM', body: decision.reply });
-    if (decision.copilot) await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'Admin Copilot', body: decision.copilot, isHiddenFromCustomer: true });
+    // 6. Save AI Reply & Update Thread
+    await SupportMessage.create({ threadId: thread.id, senderType: 'assistant', senderName: 'Store Assistant', body: replyText });
 
-    if (decision.type === 'escalate') {
-      memory.timeline.push(`[${new Date().toISOString()}] Event: Escalated to Admin.`);
-      await SupportThread.update({ status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: currentWorkflow, aiEnabled: false, metadata: { memory } }, { where: { id: thread.id } });
+    if (escalateToAdmin) {
+      await SupportThread.update({ 
+        status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: 'Customer Submitted Proof', aiEnabled: false, 
+        metadata: { memory: { state: updateStateTo } } 
+      }, { where: { id: thread.id } });
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
-    } else if (decision.type === 'resolve') {
-      memory.activeWorkflow = WORKFLOWS.NONE;
-      memory.evidence = {};
-      await SupportThread.update({ metadata: { memory } }, { where: { id: thread.id } });
     } else {
-      await SupportThread.update({ metadata: { memory } }, { where: { id: thread.id } });
+      await SupportThread.update({ metadata: { memory: { state: updateStateTo } } }, { where: { id: thread.id } });
     }
 
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });
     res.json({ success: true, thread: { ...thread.toJSON(), messages } });
 
   } catch (error) {
-    console.error('🛡️ V31 KERNEL PANIC:', error);
-    res.status(200).json({ success: true, fallback: true, message: "CRITICAL EXCEPTION. Migrating session to live administration console." });
+    console.error('🛡️ CONCIERGE ERROR:', error);
+    res.status(200).json({ success: true, fallback: true, message: "I'm having a little trouble connecting to the system right now. Our admin will check on this chat shortly!" });
   }
 };
 
 // ============================================================================
-// 🛡️ ADMIN FAIL-SAFE ROUTES
+// 🛡️ ADMIN & DASHBOARD ROUTES
 // ============================================================================
 exports.getPublicThread = async (req, res) => {
   try {
@@ -446,8 +213,8 @@ exports.resolveThread = async (req, res) => {
     const thread = await SupportThread.findByPk(req.params.id);
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 
-    await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and archived.' });
-    await SupportThread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: { activeWorkflow: 'NONE', evidence: {} } } }, { where: { id: thread.id } });
+    await SupportMessage.create({ threadId: thread.id, senderType: 'system', senderName: 'System', body: 'This docket has been successfully resolved and closed by the store manager.' });
+    await SupportThread.update({ status: THREAD_STATUS.RESOLVED, aiEnabled: false, resolvedAt: new Date(), metadata: { memory: { state: 'NORMAL' } } }, { where: { id: thread.id } });
 
     const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
     const messages = await SupportMessage.findAll({ where: { threadId: thread.id }, order: [['createdAt', 'ASC']] });

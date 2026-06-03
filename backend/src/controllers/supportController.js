@@ -411,6 +411,12 @@ exports.chat = async (req, res) => {
 
     const memory = (thread.metadata || {}).memory || {};
     memory.messageCount = (memory.messageCount || 0) + 1;
+    
+    // 🛡️ V25 Backward-Compatibility Fix: Initialize timeline if evaluating an older thread
+    if (!Array.isArray(memory.timeline)) {
+      memory.timeline = [];
+    }
+    
     memory.timeline.push(`[${new Date().toISOString()}] Intake: ${rawMessage.substring(0, 20)}`);
 
     // Compression Engine Simulator

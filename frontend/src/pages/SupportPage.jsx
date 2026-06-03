@@ -37,16 +37,22 @@ const SupportPage = () => {
     setIsSending(true);
     const threadId = localStorage.getItem('support_thread_id');
     
+    // 🔥 THE FIX: If input is empty but a photo is attached, send "[Photo Attached]" 
+    // to prevent the backend 400 crash for empty messages.
+    const textToSend = input.trim() ? input : "[Photo Attached]";
+
     // In a real scenario, you'd upload the file to S3/Cloudinary here. 
     // We are mocking it by sending a photo flag so the backend knows.
     const payload = {
-      message: input,
+      message: textToSend,
       threadId: threadId,
       photo: selectedFile ? "photo_attached_flag" : null 
     };
 
     // Optimistic UI update
-    const tempMsg = { id: Date.now(), senderType: 'customer', body: selectedFile ? `${input} [Photo Attached]` : input };
+    const displayMsg = selectedFile && input.trim() ? `${input} [Photo Attached]` : textToSend;
+    const tempMsg = { id: Date.now(), senderType: 'customer', body: displayMsg };
+    
     setMessages(prev => [...prev, tempMsg]);
     setInput('');
     setSelectedFile(null);

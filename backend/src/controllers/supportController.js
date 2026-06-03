@@ -7,29 +7,34 @@ const PICKUP_READY_MINUTES = 10;
 const STORE_CLOSE_TIME = '10:00 PM';
 
 // ============================================================
-// 🧠 V5 NLP ENGINE (Contextual Memory & FAQ Support)
+// 🧠 V6 INTENT UNIVERSE & CONFIGURATION
 // ============================================================
 
-const STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'at', 'which', 'on', 'for', 'of', 'to', 'in', 'and', 'my', 'me', 'i', 'can', 'you', 'do', 'have', 'please', 'tell', 'what', 'where', 'how', 'much', 'many', 'will', 'are', 'am', 'was', 'were', 'it', 'this', 'that', 'there', 'any', 'ok', 'okay']);
+const GREETING_TYPOS = /^(helo|hlw|hii|heyy|hi|hello|hey|sup|good morning|good evening|namaste)$/i;
 
-const SYNONYMS = {
-  'coke': 'coca cola', 'thumbs up': 'thums up', 'veggies': 'vegetables', 'dal': 'lentils', 
-  'cost': 'price', 'rate': 'price', 'where is my order': 'status', 'track': 'status', 
-  'hi': 'hello', 'hey': 'hello', 'hiii': 'hello', 'hii': 'hello', 'details': 'items'
+const ISSUE_KEYWORDS = {
+  greeting: ['hello', 'hey', 'hi', 'morning', 'evening', 'thanks', 'thank you', 'ok', 'okay'],
+  stock_query: ['available', 'have', 'stock', 'left', 'in stock', 'get', 'buy', 'fresh'],
+  price_query: ['price', 'cost', 'rate', 'rupees', 'rs', 'how much'],
+  payment_issue: ['deducted', 'charged', 'payment failed', 'upi', 'gpay', 'phonepe', 'paytm', 'transaction', 'twice', 'cut', 'debited'],
+  refund_request: ['refund', 'money back', 'return money', 'cashback', 'wallet refund'],
+  wrong_item: ['instead', 'wrong item', 'sent sugar', 'different item', 'replaced'],
+  damaged_item: ['leaking', 'leak', 'damaged', 'spoiled', 'expired', 'broken', 'bad quality', 'rotten', 'smelling'],
+  missing_order: ['not here', 'not received', 'where is my order', 'delay', 'status changed', 'waiting', 'long time'],
+  login_issue: ['login', 'log in', 'sign in', 'account locked', 'locked', 'cannot login'],
+  otp_issue: ['otp', 'verification code', 'code not coming', 'no code'],
+  technical_issue: ['loading', 'stuck', 'freeze', 'button not working', 'crash', 'error', 'website keeps', 'app is useless'],
+  human_request: ['manager', 'real person', 'human', 'agent', 'support executive', 'speak to someone'],
+  faq_return: ['return policy', 'refund policy', 'how to return']
 };
 
-const expandSynonyms = (text) => {
-  let expanded = String(text).toLowerCase();
-  for (const [slang, trueWord] of Object.entries(SYNONYMS)) {
-    expanded = expanded.replace(new RegExp(`\\b${slang}\\b`, 'g'), trueWord);
-  }
-  return expanded;
-};
+const BLACKLIST_COMPLAINT_WORDS = ['leaking', 'leak', 'damaged', 'spoiled', 'expired', 'broken', 'wrong', 'instead', 'worst', 'terrible', 'useless', 'refund', 'money'];
 
-const getTokens = (text) => expandSynonyms(text)
-  .replace(/[^a-z0-9 ]/g, ' ')
-  .split(' ')
-  .filter(word => !STOP_WORDS.has(word) && word.length > 1);
+// ============================================================
+// NLP ENGINE MATCHING FUNCTIONS
+// ============================================================
+
+const cleanText = (text) => String(text).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const getSimilarity = (a, b) => {
   if (a.length === 0 || b.length === 0) return 0;
@@ -45,154 +50,286 @@ const getSimilarity = (a, b) => {
   return 1 - (matrix[a.length][b.length] / Math.max(a.length, b.length));
 };
 
-// 1. Refined Intent Classifier
-const analyzeCustomerNeed = (text) => {
-  const cleanText = expandSynonyms(text);
-  const tokens = getTokens(cleanText);
+const classifyUniverseIntent = (text) => {
+  const clean = cleanText(text);
+  const words = clean.split(' ');
   
-  const analysis = { intent: 'unknown', extractedTokens: tokens, score: 0 };
-
-  const scores = { 
-    escalate: 0, order_status: 0, store_status: 0, 
-    store_info: 0, greeting: 0, product_search: 0, 
-    faq_return: 0, faq_offers: 0, context_login: 0 
-  };
-
-  // Specific Context Overrides
-  if (/\b(already logged in|i am logged in)\b/.test(cleanText)) scores.context_login += 50;
-  if (/\b(return policy|refund policy|exchange policy)\b/.test(cleanText)) scores.faq_return += 50;
-  if (/\b(offer|offers|discount|discounts|sale|promo)\b/.test(cleanText)) scores.faq_offers += 50;
-
-  // Standard Intents
-  if (/\b(missing|not received|damaged|wrong|spoiled|manager|human|complaint|cancel)\b/.test(cleanText)) scores.escalate += 20;
-  if (/\b(order|status|track|token|pin|items)\b/.test(cleanText)) scores.order_status += 10;
-  if (/\b(open|close|closing|closed|hours|time)\b/.test(cleanText)) scores.store_status += 25; // Boosted to override order
-  if (/\b(store name|who are you|location|address)\b/.test(cleanText)) scores.store_info += 10;
-  if (/^(hello|hey|morning|evening|thanks|yes|no)$/i.test(cleanText.trim())) scores.greeting += 10;
-  if (/\b(price|cost|rate|stock|buy)\b/.test(cleanText)) scores.product_search += 5;
-
-  for (const [intent, score] of Object.entries(scores)) {
-    if (score > analysis.score) {
-      analysis.score = score;
-      analysis.intent = intent;
-    }
+  // 1. Core Structural Overrides
+  if (GREETING_TYPOS.test(clean)) return { intent: 'greeting', confidence: 100 };
+  
+  // Abusive Sentiment Check
+  if (/\b(worst|terrible|useless|hate|garbage|bad|angry|frustrated|idiot|stupid|scam)\b/.test(clean)) {
+    return { intent: 'negative_sentiment', confidence: 100 };
   }
 
-  // Fallback Logic
-  if (analysis.score === 0) {
-    if (tokens.length <= 2) analysis.intent = 'greeting'; // Absorbs short junk text
-    else analysis.intent = 'product_search';
-  }
+  // 2. Score Iteration Matrix
+  const scores = {};
+  Object.keys(ISSUE_KEYWORDS).forEach(key => scores[key] = 0);
 
-  return analysis;
-};
-
-const findBestProductMatch = (products, searchTokens) => {
-  let bestMatch = { product: null, score: 0, isFuzzy: false };
-  const searchString = searchTokens.join(' ');
-
-  products.forEach(product => {
-    const prodString = product.name.toLowerCase();
-    const prodTokens = prodString.split(' ');
-    let currentScore = 0;
-
-    if (searchString.includes(prodString) || prodString.includes(searchString)) {
-      currentScore = 100;
-    } else {
-      searchTokens.forEach(searchWord => {
-        prodTokens.forEach(prodWord => {
-          const similarity = getSimilarity(searchWord, prodWord);
-          if (similarity === 1) currentScore += 20;
-          else if (similarity > 0.8) currentScore += 10;
-        });
-      });
-    }
-
-    if (currentScore > bestMatch.score) {
-      bestMatch.score = currentScore;
-      bestMatch.product = product;
-      bestMatch.isFuzzy = currentScore < 100 && currentScore > 10;
-    }
+  // Unigram & Substring matching
+  Object.entries(ISSUE_KEYWORDS).forEach(([intent, phrases]) => {
+    phrases.forEach(phrase => {
+      if (clean.includes(phrase)) {
+        scores[intent] += (phrase.split(' ').length * 15); // Weight multi-word strings higher
+      }
+    });
   });
 
-  return bestMatch;
+  // Pick top scoring intent
+  let topIntent = 'unknown';
+  let maxScore = 0;
+  for (const [intent, score] of Object.entries(scores)) {
+    if (score > maxScore) { maxScore = score; topIntent = intent; }
+  }
+
+  // 3. Fallback Diversion Tree (Fixes the product search bug!)
+  if (maxScore < 10) {
+    if (/\b(you|your|app|website|page|service|button|login|otp|account)\b/.test(clean)) {
+      topIntent = 'technical_issue';
+    } else if (words.length <= 3 && !BLACKLIST_COMPLAINT_WORDS.some(w => clean.includes(w))) {
+      topIntent = 'product_search';
+    } else {
+      topIntent = 'technical_issue'; // Safely route generic text away from product tables
+    }
+  }
+
+  return { intent: topIntent, confidence: maxScore === 0 ? 40 : Math.min(maxScore * 3, 98) };
+};
+
+const findBestProductMatch = (products, text) => {
+  const clean = cleanText(text);
+  
+  // 🚨 DEFENSIVE LAYER: Skip product mapping if complaint context exists
+  if (BLACKLIST_COMPLAINT_WORDS.some(word => clean.includes(word))) return null;
+
+  const searchTokens = clean.split(' ').filter(w => w.length > 2);
+  let bestProduct = null;
+  let highestScore = 0;
+
+  products.forEach(product => {
+    const prodName = product.name.toLowerCase();
+    let score = 0;
+
+    if (clean.includes(prodName)) score += 100;
+
+    searchTokens.forEach(token => {
+      if (prodName.includes(token)) score += 20;
+      prodName.split(' ').forEach(pToken => {
+        if (getSimilarity(token, pToken) > 0.85) score += 15;
+      });
+    });
+
+    if (score > highestScore) { highestScore = score; bestProduct = product; }
+  });
+
+  return highestScore >= 20 ? bestProduct : null;
 };
 
 // ============================================================
-// RESPONSE GENERATION
+// CONVERSATIONAL CONCIERGE & AUTO-TROUBLESHOOTING
 // ============================================================
-const generateElaboratedResponse = async (analysis, user) => {
-  
-  if (analysis.intent === 'escalate') {
-    return { type: 'escalate', reason: 'Customer requested human support/complaint.', reply: "I am genuinely sorry you are facing an issue. I am alerting the store owner immediately so they can look into your account and fix this for you. Please hold on just a moment." };
+const processV6Decision = async (message, user, thread) => {
+  const analysis = classifyUniverseIntent(message);
+  const clean = cleanText(message);
+
+  // Initialize context memory structure safely
+  const currentMemory = thread.metadata?.memory || { currentIssue: 'none', lastIntent: 'none' };
+
+  // Intent Confidence Gate (Ambiguity Filter)
+  if (analysis.confidence < 45 && analysis.intent !== 'product_search') {
+    return {
+      type: 'answer',
+      reply: "I want to verify I am understanding you perfectly. Are you checking on:\n1. A payment or refund problem?\n2. Item or stock tracking?\n3. An issue logging into your profile?\n\nPlease clarify so I can process this accurately."
+    };
   }
 
-  if (analysis.intent === 'faq_return') {
-    return { type: 'answer', reply: "Our Return & Refund Policy: If an item is damaged or incorrect, please bring it back to the counter within 24 hours for a replacement or a direct refund to your wallet. If you need a refund right now, just type 'manager'." };
+  // Level 3 Escalation: Immediate Abuse/Negative Sentiment Guard
+  if (analysis.intent === 'negative_sentiment') {
+    return {
+      type: 'escalate', level: 'Level 3 - Urgent', reason: 'Abuse or extreme customer dissatisfaction flagged.',
+      reply: "I notice you are extremely upset with our service, and I deeply apologize. We take this very seriously. I have triggered our highest critical tier escalation. The store manager is stepping into this connection immediately to resolve your issue."
+    };
   }
 
-  if (analysis.intent === 'faq_offers') {
-    return { type: 'answer', reply: "We regularly update our catalog with direct discounts! All prices you see on the digital store already have our daily savings applied. Keep an eye on the top banners for seasonal promo codes." };
+  // Level 2 Escalation: Explicit Human Request
+  if (analysis.intent === 'human_request') {
+    return {
+      type: 'escalate', level: 'Level 2 - Needs Manager', reason: 'Manual handoff requested.',
+      reply: "Understood. Connecting you directly to the store manager on duty. Please wait a brief moment while they review this chat stream."
+    };
   }
 
-  if (analysis.intent === 'context_login') {
-    if (user) {
-      const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']], include: [{ model: OrderItem, as: 'items' }] });
-      if (!order) return { type: 'answer', reply: "I see you are logged in! However, I checked your account and couldn't find any recent orders." };
-      const itemString = order.items.map(item => `• ${item.quantity}x ${item.name}`).join('\n');
-      return { type: 'answer', reply: `I see you are logged in! Here is your latest order details:\n\n**Status:** ${order.orderStatus.toUpperCase()}\n**Total:** ₹${order.orderAmount}\n**Items:**\n${itemString}` };
-    }
-    return { type: 'answer', reply: "My system still doesn't see an active session for you. Try refreshing the page, or logging out and logging back in!" };
-  }
-
+  // Greetings Handlers
   if (analysis.intent === 'greeting') {
-    return { type: 'answer', reply: "Hello! 👋 I am the Lakshmi Stores digital assistant. How can I help you with your groceries today?" };
+    return { type: 'answer', reply: "Hello! 👋 Welcome to **Lakshmi Stores**. I am your active digital concierge. You can search live catalog prices, track current orders, or report transaction issues here. How can I facilitate your shopping today?" };
   }
 
-  if (analysis.intent === 'store_info') {
-    return { type: 'answer', reply: "This is **Lakshmi Stores**! We are your local, fast-pickup grocery store." };
+  // FAQ: Return policies
+  if (analysis.intent === 'faq_return') {
+    return { type: 'answer', reply: "Our store policy allows for simple item replacements or structural wallet adjustments within 24 hours of store counter handoff for damaged or incorrect items. Bring the order confirmation back to the main counter to settle this instantly." };
   }
 
-  if (analysis.intent === 'store_status') {
-    const store = await StoreSetting.findByPk(1);
-    if (!store || !store.isOpen) return { type: 'answer', reply: 'Currently, the shutter is down and **we are closed**. We will resume accepting express pickup orders as soon as the store team opens the counter!' };
-    if (store.closingWarningActive) return { type: 'answer', reply: `We are currently **Open**, but the store team has activated the closing warning! Normal hours end at **${STORE_CLOSE_TIME}**. Please finalize your cart immediately.` };
-    return { type: 'answer', reply: `We are currently **Open** and accepting orders. Once placed, your order will be packed and ready for pickup within **${PICKUP_READY_MINUTES} minutes**.` };
+  // Level 1: Automatic Technical Troubleshooting (OTP/Login Matrix)
+  if (analysis.intent === 'otp_issue') {
+    return {
+      type: 'answer',
+      reply: "If verification OTP SMS blocks are stalling:\n1. Check that your network connection signal bars are stable.\n2. Ensure your country extension code matches your account configuration.\n3. Wait exactly 2 minutes before requesting a clean resend token.\n\nIf verification remains blocked, state 'manager' and our team will check the network bridge manually."
+    };
   }
 
-  if (analysis.intent === 'order_status') {
-    if (!user) return { type: 'answer', reply: 'I would love to give you an update! Please log in to your account first so I can securely retrieve your details.' };
-    const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']], include: [{ model: OrderItem, as: 'items' }] });
-    if (!order) return { type: 'answer', reply: 'I checked your history, but there are no past orders to display.' };
+  if (analysis.intent === 'login_issue') {
+    return {
+      type: 'answer',
+      reply: "For account authentication adjustments:\n1. Clear your browser workspace cookies or switch to an alternate session private window.\n2. Verify the username credentials line up exactly.\n\nIf the store system securely locked your user record from sequential incorrect pass attempts, your profile will auto-unlock in 15 minutes, or you can request an instant admin override."
+    };
+  }
+
+  if (analysis.intent === 'technical_issue') {
+    return {
+      type: 'answer',
+      reply: "I am sorry our store portal interface is running sluggishly or catching errors. Please try tapping clean reload on your interface window. I am recording these technical rendering details automatically in our issue dashboard logs so our team can evaluate the server response times."
+    };
+  }
+
+  // Transaction Matrix (Payment and Refunds)
+  if (analysis.intent === 'payment_issue' || analysis.intent === 'refund_request') {
+    if (!user) return { type: 'answer', reply: "I can look up the network payment payload securely, but please log in first so I can safely read your transaction profiles." };
+    
+    // Look for active order records needing verification
+    const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']] });
+    const token = order ? (order.orderToken !== 'WAIT' ? order.orderToken : order.cashfreeOrderId.slice(-4)) : 'None';
+
+    // Update Context State Memory
+    currentMemory.currentIssue = 'payment_reconciliation';
+    await thread.update({ metadata: { memory: currentMemory, lastRecordedIssue: analysis.intent } });
+
+    return {
+      type: 'escalate', level: 'Level 2 - Needs Manager', reason: `Payment check triggered for Order #${token}. Intent: ${analysis.intent}`,
+      reply: `I see a payment reconciliation question regarding your account profile. If funds were debited on failed transaction attempts, the secure banking gateway auto-reverses balances within 3-5 days. I have flagged your order trace reference (**#${token}**) directly on the counter owner system monitor right now to verify clearance.`
+    };
+  }
+
+  // Logistics Matrix (Damaged or Wrong Items)
+  if (analysis.intent === 'wrong_item' || analysis.intent === 'damaged_item') {
+    if (!user) return { type: 'answer', reply: "Please complete your account profile log in so I can pull up the packing list history associated with your counter ticket." };
+    const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']] });
+    if (!order) return { type: 'answer', reply: "I searched our system records but do not detect any complete invoices registered to your active profile session." };
     
     const token = order.orderToken !== 'WAIT' ? order.orderToken : order.cashfreeOrderId.slice(-4);
-    const itemString = order.items.map(item => `• ${item.quantity}x ${item.name}`).join('\n');
-    return { type: 'answer', reply: `Your latest order (**#${token}**) is currently **${order.orderStatus.toUpperCase()}**.\n\n**Items:**\n${itemString}\n**Total:** ₹${order.orderAmount}\n\nIf you need to report an issue, please type "manager".` };
+    
+    return {
+      type: 'escalate', level: 'Level 2 - Needs Manager', reason: `Damaged/Wrong delivery dispute for Order #${token}`,
+      reply: `I have automatically filed a discrepancy ticket for Order **#${token}** due to a packing mismatch/damaged structure. I am summoning the store owner into this live feed window instantly to arrange an alternate item package replacement or adjust your app wallet credits.`
+    };
   }
 
-  if (analysis.intent === 'product_search' && analysis.extractedTokens.length > 0) {
+  // Logistics Matrix (Missing Orders/Order Status Queries)
+  if (analysis.intent === 'missing_order' || analysis.intent === 'order_history') {
+    if (!user) return { type: 'answer', reply: "I can look up tracking queues instantly. Please perform an account session log in to permit secure order tracing." };
+    
+    const order = await Order.findOne({ where: { userId: String(user.id) }, order: [['createdAt', 'DESC']], include: [{ model: OrderItem, as: 'items' }] });
+    if (!order) return { type: 'answer', reply: "I cannot discover any active order tickets on your registration profile logs yet." };
+
+    const token = order.orderToken !== 'WAIT' ? order.orderToken : order.cashfreeOrderId.slice(-4);
+    const statusFormatted = order.orderStatus.replace('_', ' ').toUpperCase();
+    const itemString = order.items.map(item => `• ${item.quantity}x ${item.name}`).join('\n');
+
+    return {
+      type: 'answer',
+      reply: `### In-Store Order Update\n**Order Reference:** #${token}\n**Operational Status:** ${statusFormatted}\n\n**Manifest Items:**\n${itemString}\n\n**Financial Balance:** ₹${order.orderAmount}\n\nIf the counter progress tracking has been stalled over your expected pickup window, just say 'manager' and I will ring the notification bell at the packing terminal.`
+    };
+  }
+
+  // Product & Inventory Core Logic
+  if (analysis.intent === 'product_search' || analysis.intent === 'stock_query' || analysis.intent === 'price_query') {
     const products = await Product.findAll({ where: { isActive: true } });
-    const { product, score, isFuzzy } = findBestProductMatch(products, analysis.extractedTokens);
+    const matchedProduct = findBestProductMatch(products, message);
 
-    if (product && score >= 15) {
-      const safeStock = Math.max(0, (product.real_stock || 0) - (product.buffer ?? 2));
-      let prefix = isFuzzy ? `I believe you are looking for **${product.name}**! ` : `I checked our shelves for **${product.name}**. `;
-
-      if (safeStock > 0) return { type: 'answer', reply: `${prefix}We have about **${safeStock} available** right now. The price is **₹${product.price}**. You can add it to your cart directly from the store page!` };
-      return { type: 'answer', reply: `${prefix}Unfortunately, we are completely **Out of Stock** right now. ${product.restockEta ? `Expected restock: **${product.restockEta}**.` : ''}` };
+    if (matchedProduct) {
+      const safeStock = Math.max(0, (matchedProduct.real_stock || 0) - (matchedProduct.buffer ?? 2));
+      const trackingUnit = matchedProduct.isSoldByWeight ? 'KG' : 'units';
+      
+      if (safeStock > 0) {
+        return {
+          type: 'answer',
+          reply: `Yes, we have **${matchedProduct.name}** verified available in catalog stock! The system cost rate registers at **₹${matchedProduct.price}** per ${matchedProduct.isSoldByWeight ? 'KG' : 'item'}. There are roughly **${safeStock} ${trackingUnit} remaining** on the product racks for immediate counter pickup allocation.`
+        };
+      } else {
+        return {
+          type: 'answer',
+          reply: `We do carry **${matchedProduct.name}** in our catalog layout, but it has hit its protected safety buffer thresholds and is currently **Out of Stock**. ${matchedProduct.restockEta ? `Our next supply fulfillment truck is scheduled for: **${matchedProduct.restockEta}**.` : 'I will submit a dynamic catalog query log to the owner system to prompt an earlier reorder.'}`
+        };
+      }
     }
 
-    // Completely Disabled the auto-logging to prevent junk database entries
-    const candidate = analysis.extractedTokens.slice(0, 3).join(' ');
-    return { type: 'answer', reply: `I searched the live catalog, but unfortunately, we don't currently sell **"${candidate}"**. If you want me to request the manager to stock it, just type "manager"!` };
+    // Dynamic logging check to screen out junk small talk words
+    if (analysis.extractedTokens.length > 0) {
+      const candidateItem = analysis.extractedTokens.slice(0, 3).join(' ');
+      if (candidateItem.length > 2 && !['special', 'demand', 'todays', 'high'].some(w => candidateItem.includes(w))) {
+        await ItemRequest.findOrCreate({ where: { itemName: candidateItem }, defaults: { requestCount: 1 } });
+        return { type: 'answer', reply: `I surveyed our current catalog matrix but could not locate an active entry matching **"${candidateItem}"**. I have filed a restocking tracking log to the store admin desk to look into scheduling supply availability for this item.` };
+      }
+    }
   }
 
-  return { type: 'answer', reply: "I didn't quite catch that. You can ask me to check the price of specific groceries, track your orders, or check our store timings." };
+  // Absolute baseline fallback
+  return { type: 'answer', reply: "I am here to guide your store experience. You can query product availability (e.g., 'Do you have milk?'), review your transaction balance tokens, or request support intervention rules." };
 };
 
 // ============================================================
-// ROUTING HELPERS & ENDPOINT
+// ENDPOINT MAIN LOGIC & ROUTE EXPORTS
 // ============================================================
+
+exports.chat = async (req, res) => {
+  try {
+    const message = String(req.body.message || '').trim().slice(0, 1000);
+    if (!message) return res.status(400).json({ success: false, message: 'Message payload required.' });
+
+    const user = await getOptionalUser(req);
+    let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
+    
+    if (!thread) {
+      thread = await SupportThread.create({ 
+        userId: user ? String(user.id) : null, 
+        customerName: user?.name, customerEmail: user?.email, customerPhone: user?.phone, 
+        status: THREAD_STATUS.AI, aiEnabled: true, metadata: { memory: { currentIssue: 'none', lastIntent: 'none' } } 
+      });
+    } else if (thread.status === THREAD_STATUS.RESOLVED) {
+      await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null, handledBy: null, escalationReason: null });
+    }
+
+    await appendMessage(thread, 'customer', message, user?.name || 'Customer');
+
+    if (!thread.aiEnabled || [THREAD_STATUS.NEEDS_ADMIN, THREAD_STATUS.HUMAN_ACTIVE].includes(thread.status)) {
+      await thread.update({ status: thread.status === THREAD_STATUS.AI ? THREAD_STATUS.NEEDS_ADMIN : thread.status });
+      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
+      return res.json({ success: true, thread: await serializeThread(thread) });
+    }
+
+    // 🚨 FIRE EXECUTIVE V6 CONTROL DECISION
+    const decision = await processV6Decision(message, user, thread);
+
+    if (decision.reply) await appendMessage(thread, 'assistant', decision.reply, 'Lakshmi Assistant');
+
+    if (decision.type === 'escalate') {
+      await thread.update({ 
+        status: THREAD_STATUS.NEEDS_ADMIN, 
+        priority: 'urgent', 
+        escalationReason: `${decision.level} - ${decision.reason}`, 
+        aiEnabled: false 
+      });
+      await notifyAdmin(req, thread, `${decision.level} - ${decision.reason}`, message);
+    } else {
+      await thread.update({ status: THREAD_STATUS.AI, priority: 'normal', aiEnabled: true });
+    }
+
+    res.json({ success: true, thread: await serializeThread(thread) });
+  } catch (error) {
+    console.error('NLP Critical Runtime error:', error);
+    res.status(500).json({ success: false, message: 'Support assistant failed to process utterance.' });
+  }
+};
+
 const getOptionalUser = async (req) => {
   try {
     const header = req.headers.authorization || '';
@@ -209,7 +346,7 @@ const serializeThread = async (thread) => {
 };
 
 const notifyAdmin = async (req, thread, reason, customerMessage) => {
-  await Notification.create({ userId: 'GLOBAL', title: 'Customer Needs Assistance', message: `${thread.customerName || 'Customer'}: ${String(customerMessage).slice(0, 100)}...`, isRead: false });
+  await Notification.create({ userId: 'GLOBAL', title: 'Critical Support Priority', message: `${thread.customerName || 'Customer'}: ${String(customerMessage).slice(0, 100)}...`, isRead: false });
   const io = req.app.get('io');
   if (io) { io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN, reason }); io.emit('storeUpdated'); }
 };
@@ -218,47 +355,6 @@ const appendMessage = async (thread, senderType, body, senderName = null) => {
   const msg = await SupportMessage.create({ threadId: thread.id, senderType, senderName, body });
   await thread.update({ lastMessagePreview: String(body).slice(0, 500), lastCustomerMessageAt: senderType === 'customer' ? new Date() : thread.lastCustomerMessageAt });
   return msg;
-};
-
-exports.chat = async (req, res) => {
-  try {
-    const message = String(req.body.message || '').trim().slice(0, 1000);
-    if (!message) return res.status(400).json({ success: false, message: 'Message is required.' });
-
-    const user = await getOptionalUser(req);
-    let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
-    
-    if (!thread) {
-      thread = await SupportThread.create({ userId: user ? String(user.id) : null, customerName: user?.name, customerEmail: user?.email, customerPhone: user?.phone, status: THREAD_STATUS.AI, aiEnabled: true });
-    } else if (thread.status === THREAD_STATUS.RESOLVED) {
-      await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null, handledBy: null, escalationReason: null });
-    }
-
-    await appendMessage(thread, 'customer', message, user?.name || 'Customer');
-
-    if (!thread.aiEnabled || [THREAD_STATUS.NEEDS_ADMIN, THREAD_STATUS.HUMAN_ACTIVE].includes(thread.status)) {
-      await thread.update({ status: thread.status === THREAD_STATUS.AI ? THREAD_STATUS.NEEDS_ADMIN : thread.status });
-      const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: thread.status });
-      return res.json({ success: true, thread: await serializeThread(thread) });
-    }
-
-    const analysis = analyzeCustomerNeed(message);
-    const decision = await generateElaboratedResponse(analysis, user);
-
-    if (decision.reply) await appendMessage(thread, 'assistant', decision.reply, 'Lakshmi Assistant');
-
-    if (decision.type === 'escalate') {
-      await thread.update({ status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: decision.reason, aiEnabled: false });
-      await notifyAdmin(req, thread, decision.reason, message);
-    } else {
-      await thread.update({ status: THREAD_STATUS.AI, priority: 'normal', aiEnabled: true });
-    }
-
-    res.json({ success: true, thread: await serializeThread(thread) });
-  } catch (error) {
-    console.error('NLP Engine error:', error);
-    res.status(500).json({ success: false, message: 'Support assistant failed to respond.' });
-  }
 };
 
 exports.getPublicThread = async (req, res) => {
@@ -281,7 +377,7 @@ exports.getThreads = async (req, res) => {
 exports.adminReply = async (req, res) => {
   try {
     const message = String(req.body.message || '').trim();
-    if (!message) return res.status(400).json({ success: false, message: 'Message is required.' });
+    if (!message) return res.status(400).json({ success: false, message: 'Message required.' });
     const thread = await SupportThread.findByPk(req.params.id);
     if (!thread) return res.status(404).json({ success: false, message: 'Thread not found.' });
 

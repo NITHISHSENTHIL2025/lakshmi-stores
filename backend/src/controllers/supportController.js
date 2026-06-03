@@ -5,7 +5,8 @@ const { Product, Order, OrderItem, User, Notification, StoreSetting, SupportThre
 const { classifyMessage } = require('../services/nlp/classifier');
 const { resolveContext } = require('../services/nlp/contextResolver');
 const { updateConversationMemory } = require('../services/nlp/memory');
-const { logIssueForDashboard } = require('../services/analytics/issueLogger');
+const { logIssueForDashboard } =
+require('../services/nlp/analytics/issueLogger');
 const { ESCALATION_TIERS } = require('../services/nlp/intents');
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };

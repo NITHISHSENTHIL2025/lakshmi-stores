@@ -6,15 +6,15 @@ const { Op } = require('sequelize');
 const { Product, Order, User, SupportThread, SupportMessage } = require('../models');
 
 // ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║      LAKSHMI STORES V32 — THE EMPATHETIC HUMAN CONCIERGE                     ║
-// ║  Warm Greetings, Friendly Product Search, & Seamless Admin Handoff           ║
+// ║      LAKSHMI STORES V33 — THE PERFECT EMPATHETIC CONCIERGE                   ║
+// ║  Crash-Proof Search · Deep Empathy · Proof Collection · Silent Admin Handoff ║
 // ╚══════════════════════════════════════════════════════════════════════════════╝
 
 const THREAD_STATUS = { AI: 'ai_answering', NEEDS_ADMIN: 'needs_admin', HUMAN_ACTIVE: 'human_active', RESOLVED: 'resolved' };
 const generateTicketId = () => `LS-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
 // ----------------------------------------------------------------------------
-// 🗣️ [LINGUISTICS] TRANSLATIONS & ALIASES
+// 🗣️ [LINGUISTICS] TRANSLATIONS & TEXT NORMALIZATION
 // ----------------------------------------------------------------------------
 const REGIONAL_MAP = {
   'varala': 'missing', 'varla': 'missing', 'kedaikala': 'missing', 'illai': 'no', 
@@ -34,28 +34,31 @@ const normalizeText = (text) => {
 };
 
 // ----------------------------------------------------------------------------
-// 🛒 [ENGINE] FRIENDLY PRODUCT SEARCH
+// 🛒 [ENGINE] CRASH-PROOF FRIENDLY PRODUCT SEARCH
 // ----------------------------------------------------------------------------
 const findProductFriendly = async (text) => {
   try {
-    const dbProducts = await Product.findAll({ attributes: ['id', 'name', 'price', 'real_stock', 'buffer', 'tags'] });
-    const tokens = text.split(' ').filter(w => w.length > 2);
+    // Universal safe fetch. No attributes array to prevent schema mismatch crashes!
+    const dbProducts = await Product.findAll(); 
+    const tokens = text.split(' ').filter(w => w.length > 2); // E.g., "garl", "sprite"
     
     for (const p of dbProducts) {
-      const pName = String(p.name).toLowerCase();
-      const pTags = String(p.tags || '').toLowerCase();
+      const pName = String(p.name || '').toLowerCase();
+      if (!pName) continue;
       
-      // Match exact, by tag, or by word overlap (e.g. "sprite" matches "SPRITE (2L)")
-      if (text.includes(pName) || (pTags && pTags.split(',').some(tag => text.includes(tag.trim()))) || tokens.some(t => pName.includes(t))) {
+      // Match exact name OR if tokens overlap (e.g. "garl" matches "garlic", "sprite" matches "SPRITE (2L)")
+      if (text.includes(pName) || tokens.some(t => pName.includes(t))) {
         return p;
       }
     }
-  } catch (e) { console.error("Product Search Error:", e); }
+  } catch (e) { 
+    console.error("Product Search Error:", e); 
+  }
   return null;
 };
 
 // ----------------------------------------------------------------------------
-// 🚀 [CONTROLLER] MAIN CHAT LOGIC
+// 🚀 [CONTROLLER] EMPATHETIC CHAT LOGIC
 // ----------------------------------------------------------------------------
 exports.chat = async (req, res) => {
   try {
@@ -71,13 +74,13 @@ exports.chat = async (req, res) => {
       }
     } catch (e) { /* Guest mode */ }
 
-    // 2. Load or Create Thread & Memory
+    // 2. Load or Create Thread & Memory Safely
     let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
-    let memory = { state: 'NORMAL' };
-
+    let meta = {};
     if (thread && thread.metadata) {
-      try { memory = typeof thread.metadata === 'string' ? JSON.parse(thread.metadata).memory : thread.metadata.memory; } catch (e) {}
+      try { meta = typeof thread.metadata === 'string' ? JSON.parse(thread.metadata) : thread.metadata; } catch(e) {}
     }
+    let memory = meta.memory || { state: 'NORMAL' };
 
     if (!thread) {
       thread = await SupportThread.create({ 
@@ -85,7 +88,7 @@ exports.chat = async (req, res) => {
         metadata: { memory: { state: 'NORMAL' } } 
       });
     } else if (thread.status === THREAD_STATUS.RESOLVED) {
-      // If customer chats on a closed ticket, politely reopen it
+      // Reopen closed tickets politely
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
       memory.state = 'NORMAL';
     }
@@ -102,7 +105,7 @@ exports.chat = async (req, res) => {
     }
 
     // 5. AI CONCIERGE LOGIC
-    const text = normalizeText(rawMessage);
+    const normalized = normalizeText(rawMessage);
     let replyText = "";
     let updateStateTo = memory.state;
     let escalateToAdmin = false;
@@ -116,28 +119,32 @@ exports.chat = async (req, res) => {
     } 
     // --- STATE: NORMAL CONVERSATION ---
     else {
-      // A. Complaint / Issue Detected
-      if (/\b(deducted|charged|failed|missing|varala|wrong|damaged|broken|leaking|spoiled|otp|locked|hacked|refund|manager|human|issue|problem|worst)\b/i.test(text)) {
+      // A. Complaint / Issue Detected (Expanded to catch "picked up", "deducted", "missing")
+      const isIssue = /\b(wrong|damaged|not received|broken|missing|money|deducted|picked up|late|delay|issue|problem|bad|worst|cancel|refund|return|stuck|failed|error|where is|not packed|not delivered|complaint)\b/i.test(normalized);
+      // B. Greeting Detected (Catches "hii", "hellooo", "hey")
+      const isGreeting = /^(hi+|hello+|hey+|good morning|good evening|thanks|ok|yo|sup)$/i.test(normalized) || /\b(hi+|hello+|hey+)\b/i.test(normalized);
+
+      if (isIssue) {
         replyText = `I am so sorry to hear you are facing this issue. I completely understand how frustrating that can be. 😔\n\nTo help me get this resolved for you immediately, could you please reply with your **Order ID** and upload any **photos or screenshots** of the issue?\n\nOnce you provide that, I will hand this chat straight over to the store manager.`;
         updateStateTo = 'AWAITING_PROOF';
       } 
-      // B. Greetings
-      else if (/\b(hi|hello|hey|good morning|good evening|thanks|ok)\b/i.test(text) && text.length < 15) {
-        replyText = `Hello! 👋 Welcome to Lakshmi Stores. I am your store assistant. How can I help you with your shopping today?`;
+      else if (isGreeting && normalized.length < 20) {
+        replyText = `Hello! 👋 Welcome to Lakshmi Stores. I am your store assistant. How can I help you with your shopping or orders today?`;
       } 
-      // C. Product Search
-      else if (/\b(price|stock|do you have|available|need|want)\b/i.test(text) || text.length > 2) {
-        const product = await findProductFriendly(text);
+      else {
+        // C. Product Search (Crash-proof lookup)
+        const product = await findProductFriendly(normalized);
         if (product) {
           const stock = Math.max(0, (Number(product.real_stock) || 0) - (Number(product.buffer) || 2));
-          replyText = `Yes, we have **${product.name}**! 🎉\n\nIt costs **₹${product.price}** and we currently have **${stock} units** available in stock. Would you like me to help you find anything else?`;
+          replyText = `Yes, we have **${product.name}**! 🎉\n\nIt costs **₹${product.price}** and we currently have **${stock} units** available. Would you like me to help you find anything else?`;
         } else {
-          replyText = `I just checked our shelves, but I couldn't find an exact match for that right now. Could you check the spelling, or is there another brand you'd like me to look for?`;
+          // If it was a short message (typo) vs a long confusing sentence
+          if (normalized.length > 2 && normalized.length < 25) {
+            replyText = `I checked our catalog but couldn't find an exact match for "${rawMessage}". Could you check the spelling, or is there an issue with your order I can help with?`;
+          } else {
+            replyText = `I'm here to help! Let me know if you are looking for a specific product, or if you are facing an issue with an order.`;
+          }
         }
-      }
-      // D. Fallback
-      else {
-        replyText = `I'm here to help! Are you looking for a specific product, or do you need help with an order issue?`;
       }
     }
 
@@ -149,6 +156,7 @@ exports.chat = async (req, res) => {
         status: THREAD_STATUS.NEEDS_ADMIN, priority: 'urgent', escalationReason: 'Customer Submitted Proof', aiEnabled: false, 
         metadata: { memory: { state: updateStateTo } } 
       }, { where: { id: thread.id } });
+      
       const io = req.app.get('io'); if (io) io.emit('supportUpdated', { threadId: thread.id, status: THREAD_STATUS.NEEDS_ADMIN });
     } else {
       await SupportThread.update({ metadata: { memory: { state: updateStateTo } } }, { where: { id: thread.id } });

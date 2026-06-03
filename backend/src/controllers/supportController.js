@@ -180,11 +180,21 @@ const resolveContext = (analysis, memory) => {
 };
 
 const updateMemory = (currentMemory, analysis, ticketId, productMatch) => {
-  const memory = currentMemory || { lastProduct: null, lastIssue: 'none', lastTicket: null, moodHistory: [] };
+  // 1. Safely initialize the base memory object
+  const memory = currentMemory || {};
   
-  (memory.moodHistory || []).push(analysis.sentiment);
-  if (memory.moodHistory.length > 5) memory.moodHistory.shift();
+  // 2. Explicitly initialize the moodHistory array if it doesn't exist (fixes the crash!)
+  if (!Array.isArray(memory.moodHistory)) {
+    memory.moodHistory = [];
+  }
 
+  // 3. Safely push and shift
+  memory.moodHistory.push(analysis.sentiment);
+  if (memory.moodHistory.length > 5) {
+    memory.moodHistory.shift();
+  }
+
+  // 4. Update tracking metrics
   if (analysis.risk >= 50 && !['human_request'].includes(analysis.primaryIntent)) {
     memory.lastIssue = analysis.primaryIntent;
   }

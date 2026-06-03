@@ -38,4 +38,4 @@ const INTENT_KEYWORDS = {
   product_search: ['price', 'cost', 'rate', 'rupees', 'rs', 'how much', 'buy']
 };
 
-module.exports = { SEVERITY_LEVELS, ESCALATION_TIERS, INTENT_KEYWORDS };
+module.exports = { SEVERITY_LEVELS, ESCALATION_TIERS, INTENT_KEYWORDS };    

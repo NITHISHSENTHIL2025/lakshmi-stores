@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import AdminProductManager from '../components/AdminProductManager';
 import AdminSupportInbox from '../components/AdminSupportInbox';
-import AdminOfferPanel from '../components/AdminOfferPanel'; // 🚨 NEW IMPORT
+import AdminOfferPanel from '../components/AdminOfferPanel'; 
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
 import toast from 'react-hot-toast'; 
@@ -298,7 +298,7 @@ const AdminDashboard = () => {
                 <a href={`mailto:${customerDetailsModal.customerEmail}`} className="flex-1 py-3 bg-blue-50 text-blue-700 font-black rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 border border-blue-200 shadow-sm cursor-pointer">✉️ Email</a>
               )}
               {!customerDetailsModal.customerPhone && !customerDetailsModal.customerEmail && (
-                 <div className="w-full p-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-sm border border-gray-200">No contact info available</div>
+                <div className="w-full p-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-sm border border-gray-200">No contact info available</div>
               )}
             </div>
           </div>
@@ -470,7 +470,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* ORDER DETAILS MODAL */}
+      {/* 🚨 THE BUG FIX: ORDER DETAILS MODAL DISCOUNT BREAKDOWN */}
       {selectedOrder && (
         <div className="fixed inset-0 z-[200] bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-300">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden anim-slide-up border border-gray-100">
@@ -494,10 +494,25 @@ const AdminDashboard = () => {
                   </div>
                 ))}
               </div>
-              <div className="border-t border-gray-100 pt-4 flex justify-between items-center">
-                <span className="font-bold text-gray-500">Total Amount:</span>
-                <span className="text-3xl font-black text-gray-900">₹{selectedOrder.orderAmount}</span>
+              
+              {/* 🚨 THIS IS THE MISSING BREAKDOWN FOR ADMIN! */}
+              <div className="border-t border-gray-100 pt-4 space-y-2">
+                <div className="flex justify-between items-center text-sm font-bold text-gray-500">
+                  <span>Subtotal:</span>
+                  <span>₹{selectedOrder.totalAmount}</span>
+                </div>
+                {Number(selectedOrder.totalAmount) > Number(selectedOrder.orderAmount) && (
+                  <div className="flex justify-between items-center text-sm font-black text-green-600">
+                    <span>Offer Discount:</span>
+                    <span>-₹{(Number(selectedOrder.totalAmount) - Number(selectedOrder.orderAmount)).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                  <span className="font-bold text-gray-900 uppercase tracking-widest text-xs">Customer Pays:</span>
+                  <span className="text-3xl font-black text-gray-900">₹{selectedOrder.orderAmount}</span>
+                </div>
               </div>
+
             </div>
             
             <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">

@@ -17,22 +17,33 @@ exports.chat = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Message required.' });
     }
 
+    // 1. Identify User from Token
     let user = null;
     try {
       const header = String(req.headers.authorization || '');
       if (header.startsWith('Bearer ')) {
-        user = await User.findByPk(jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET).id);
+        const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_ACCESS_SECRET);
+        user = await User.findByPk(decoded.id);
       }
     } catch (e) {}
 
     let thread = req.body.threadId ? await SupportThread.findByPk(req.body.threadId) : null;
+    
+    // 2. 🔥 THE FIX: Map User data to the Support Thread upon creation
     if (!thread) {
-      thread = await SupportThread.create({ userId: user ? String(user.id) : null, status: THREAD_STATUS.AI, aiEnabled: true });
+      thread = await SupportThread.create({ 
+        userId: user ? String(user.id) : null, 
+        customerName: user ? user.name : null,
+        customerEmail: user ? user.email : null,
+        customerPhone: user ? user.phone : null,
+        status: THREAD_STATUS.AI, 
+        aiEnabled: true 
+      });
     } else if (thread.status === THREAD_STATUS.RESOLVED) {
       await thread.update({ status: THREAD_STATUS.AI, aiEnabled: true, resolvedAt: null });
     }
 
-    // 🔥 Combine text and Base64 image into the database body
+    // Combine text and Base64 image into the database body
     let finalCustomerBody = rawMessage;
     if (photoBase64 && photoBase64.startsWith('data:image')) {
       finalCustomerBody = finalCustomerBody + 'ATTACHED_IMG:' + photoBase64;

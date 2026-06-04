@@ -18,7 +18,8 @@ import PaymentStatus from './pages/PaymentStatus';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword'; 
 import VerifyOTP from './pages/VerifyOTP';
-import SupportPage from './pages/SupportPage'; // <-- Imported perfectly ONCE
+import SupportPage from './pages/SupportPage';
+import OfferZone from './pages/OfferZone'; // 🚨 NEW: Imported OfferZone
 
 const ProtectedAdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -55,10 +56,12 @@ const TopNav = () => {
         <div className="flex gap-4 md:gap-6 items-center">
           <Link to="/" className="hidden md:block font-bold text-gray-600 hover:text-orange-600 transition-colors">Store</Link>
           
+          {/* 🚨 NEW: Offers Button in Top Nav */}
+          <Link to="/offers" className="hidden md:flex items-center gap-2 font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 px-4 py-2 rounded-xl transition-colors"><span>🎁</span> Offers</Link>
+
           {user?.role === 'customer' ? (
             <>
               <Link to="/orders" className="hidden md:flex items-center gap-2 font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-4 py-2 rounded-xl transition-colors"><span>📦</span> Live Orders</Link>
-              {/* Added Support Link in Top Nav */}
               <Link to="/support" className="hidden md:flex items-center gap-2 font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors"><span>🎧</span> Support</Link>
               <Link to="/account" className="hidden md:flex items-center gap-2 font-bold text-gray-900 hover:text-orange-600 bg-gray-50 px-4 py-2 rounded-xl transition-colors"><span className="text-xl">👤</span> {user.name?.split(' ')[0] || 'User'}</Link>
             </>
@@ -87,14 +90,16 @@ const BottomNav = () => {
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-40 flex justify-around items-center pb-safe pt-2 px-2 h-16">
-      <Link to="/" className={`flex flex-col items-center gap-1 w-1/4 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
+      <Link to="/" className={`flex flex-col items-center gap-1 w-1/5 ${isActive('/')}`}><span className="text-xl">🏠</span><span className="text-[10px] font-black tracking-wider uppercase">Store</span></Link>
       
+      {/* 🚨 NEW: Offers Button in Mobile Nav */}
+      <Link to="/offers" className={`flex flex-col items-center gap-1 w-1/5 border-l border-gray-100 ${isActive('/offers')}`}><span className="text-xl">🎁</span><span className="text-[10px] font-black tracking-wider uppercase">Offers</span></Link>
+
       {user?.role === 'customer' && (
         <>
-          <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
-          {/* Added Support Link in Bottom Nav for Mobile */}
-          <Link to="/support" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/support')}`}><span className="text-xl">🎧</span><span className="text-[10px] font-black tracking-wider uppercase">Support</span></Link>
-          <Link to="/account" className={`flex flex-col items-center gap-1 w-1/4 border-l border-gray-100 ${isActive('/account')}`}><span className="text-xl">👤</span><span className="text-[10px] font-black tracking-wider uppercase">Account</span></Link>
+          <Link to="/orders" className={`flex flex-col items-center gap-1 w-1/5 border-l border-gray-100 ${isActive('/orders')}`}><span className="text-xl">📦</span><span className="text-[10px] font-black tracking-wider uppercase">Orders</span></Link>
+          <Link to="/support" className={`flex flex-col items-center gap-1 w-1/5 border-l border-gray-100 ${isActive('/support')}`}><span className="text-xl">🎧</span><span className="text-[10px] font-black tracking-wider uppercase">Support</span></Link>
+          <Link to="/account" className={`flex flex-col items-center gap-1 w-1/5 border-l border-gray-100 ${isActive('/account')}`}><span className="text-xl">👤</span><span className="text-[10px] font-black tracking-wider uppercase">Account</span></Link>
         </>
       )}
     </div>
@@ -133,8 +138,6 @@ const CustomerLayout = ({ children }) => {
         {children}
       </main>
       
-      {/* 🛑 DELETED <SmartAssistant /> OVERLAY ENTIRELY 🛑 */}
-
       <BottomNav />
     </div>
   );
@@ -163,13 +166,14 @@ function App() {
                 <Route path="/reset-password/:token" element={<ResetPassword />} /> 
                 <Route path="/verify-otp" element={<VerifyOTP />} />
                 
-                {/* Clean standalone routes using the layout */}
                 <Route path="/payment-status" element={<CustomerLayout><PaymentStatus /></CustomerLayout>} />
                 <Route path="/" element={<CustomerLayout><ProductGrid /></CustomerLayout>} />
+                
+                {/* 🚨 NEW: The Customer Offer Zone Route */}
+                <Route path="/offers" element={<CustomerLayout><OfferZone /></CustomerLayout>} />
+                
                 <Route path="/account" element={<ProtectedCustomerRoute><CustomerLayout><MyAccount /></CustomerLayout></ProtectedCustomerRoute>} />
                 <Route path="/orders" element={<ProtectedCustomerRoute><CustomerLayout><MyOrders /></CustomerLayout></ProtectedCustomerRoute>} />
-                
-                {/* The New Standalone Support Page */}
                 <Route path="/support" element={<CustomerLayout><SupportPage /></CustomerLayout>} />
               </Routes>
             </div>

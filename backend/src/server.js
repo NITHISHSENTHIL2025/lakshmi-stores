@@ -43,6 +43,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const storeRoutes = require('./routes/storeRoutes');
 const userRoutes = require('./routes/userRoutes');
 const supportRoutes = require('./routes/supportRoutes');
+const offerRoutes = require('./routes/offerRoutes'); // 🚨 NEW: Imported offerRoutes
 
 const errorHandler = require('./middlewares/errorHandler');
 
@@ -140,7 +141,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/store', storeRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/support', supportRoutes);
-app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/offers', offerRoutes); // 🚨 NEW: Mounted offerRoutes
 
 app.use(errorHandler);
 

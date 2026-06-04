@@ -8,16 +8,17 @@ const StoreSetting = require('./StoreSetting');
 const ItemRequest = require('./ItemRequest');
 const SupportThread = require('./SupportThread');
 const SupportMessage = require('./SupportMessage');
+const Offer = require('./Offer'); // 🚨 NEW OFFER MODEL
 
 // Order → OrderItems (cascade delete)
 Order.hasMany(OrderItem, { foreignKey: 'orderId', as: 'items', onDelete: 'CASCADE' });
 OrderItem.belongsTo(Order, { foreignKey: 'orderId' });
 
-// OrderItem → Product (no constraints — product can be archived after purchase)
+// OrderItem → Product
 OrderItem.belongsTo(Product, { foreignKey: 'productId', constraints: false });
 Product.hasMany(OrderItem, { foreignKey: 'productId', constraints: false });
 
-// User → Orders (no FK constraints — userId can be a UUID or legacy string)
+// User → Orders
 User.hasMany(Order, { foreignKey: 'userId', constraints: false });
 Order.belongsTo(User, { foreignKey: 'userId', constraints: false });
 
@@ -34,5 +35,6 @@ module.exports = {
   StoreSetting,
   ItemRequest,
   SupportThread,
-  SupportMessage
+  SupportMessage,
+  Offer // 🚨 EXPORTED
 };

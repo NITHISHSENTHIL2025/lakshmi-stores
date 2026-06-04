@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import AdminProductManager from '../components/AdminProductManager';
 import AdminSupportInbox from '../components/AdminSupportInbox';
+import AdminOfferPanel from '../components/AdminOfferPanel'; // 🚨 NEW IMPORT
 import { io } from 'socket.io-client';
 import { useAuth } from "../context/AuthContext";
 import toast from 'react-hot-toast'; 
@@ -152,7 +153,6 @@ const AdminDashboard = () => {
       const response = await api.get('/orders');
       const allOrders = response.data.data;
       
-      // 🚨 PRODUCTION FIX: Added 'pending_approval' to active orders array!
       const active = allOrders.filter(o => ['pending_approval', 'paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
 
       if (isBackgroundSync && active.length > prevOrderCount.current && prevOrderCount.current !== 0) playAlarm(); 
@@ -230,7 +230,6 @@ const AdminDashboard = () => {
 
   const safeNumber = (val) => isNaN(Number(val)) ? 0 : Number(val);
   
-  // 🚨 PRODUCTION FIX: Added 'pending_approval' to active view filters
   const activeOrders = orders.filter(o => ['pending_approval', 'paid', 'pending_cash', 'packed', 'ready'].includes(o.orderStatus.toLowerCase()));
   const pastOrders = orders.filter(o => ['completed', 'cancelled', 'pending', 'failed'].includes(o.orderStatus.toLowerCase()));
   
@@ -244,7 +243,6 @@ const AdminDashboard = () => {
     const s = order.orderStatus.toLowerCase();
     const isCash = order.paymentType === 'CASH' || s === 'pending_cash';
 
-    // 🚨 PRODUCTION FIX: Badge for Late Order Requests
     if (s === 'pending_approval') return <span className="px-4 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-yellow-300 shadow-sm animate-pulse">Action Required</span>;
     if (s === 'pending') return <span className="px-4 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-[10px] font-black uppercase tracking-widest border border-gray-200">Awaiting Online Payment</span>;
     if (s === 'failed') return <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-lg text-[10px] font-black uppercase tracking-widest border border-red-200">Payment Failed</span>;
@@ -561,6 +559,10 @@ const AdminDashboard = () => {
           <button onClick={() => setActiveView('live')} className={navLinkClass('live')}><span className="flex items-center gap-4 text-lg"><span>⚡</span> Pack Orders</span>{activeOrders.length > 0 && <span className="bg-white text-gray-900 text-xs px-2.5 py-1 rounded-full">{activeOrders.length}</span>}</button>
           <button onClick={() => setActiveView('pos')} className={navLinkClass('pos')}><span className="flex items-center gap-4 text-lg"><span>🏪</span> Quick POS</span></button>
           <button onClick={() => setActiveView('requests')} className={navLinkClass('requests')}><span className="flex items-center gap-4 text-lg"><span>📝</span> Item Requests</span>{customerRequests.length > 0 && <span className="bg-orange-500 text-white text-xs px-2.5 py-1 rounded-full">{customerRequests.length}</span>}</button>
+          
+          {/* 🚨 NEW: OFFERS BUTTON ADDED HERE */}
+          <button onClick={() => setActiveView('offers')} className={navLinkClass('offers')}><span className="flex items-center gap-4 text-lg"><span>🎁</span> Offers</span></button>
+
           <button onClick={() => setActiveView('analytics')} className={navLinkClass('analytics')}><span className="flex items-center gap-4 text-lg"><span>📊</span> Analytics</span>{lowStockItems.length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-1 rounded-full">!</span>}</button>
           <button onClick={() => setActiveView('products')} className={navLinkClass('products')}><span className="flex items-center gap-4 text-lg"><span>📦</span> Catalog</span></button>
           <button onClick={() => setActiveView('history')} className={navLinkClass('history')}><span className="flex items-center gap-4 text-lg"><span>🕰️</span> History</span></button>
@@ -575,6 +577,14 @@ const AdminDashboard = () => {
       <main className="flex-1 p-4 md:p-10 h-screen overflow-y-auto relative bg-gray-50/50">
         {activeView === 'support' && (
           <AdminSupportInbox socket={socket} onCountChange={setSupportNeedCount} />
+        )}
+
+        {/* 🚨 NEW: OFFERS VIEW RENDERED HERE */}
+        {activeView === 'offers' && (
+          <div className="anim-slide-up">
+            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-8">Offer Management</h1>
+            <AdminOfferPanel />
+          </div>
         )}
 
         {/* ACTIVE ORDERS */}
@@ -606,7 +616,6 @@ const AdminDashboard = () => {
                     let displayToken = order.orderToken;
                     if (!displayToken || displayToken === 'WAIT') displayToken = order.cashfreeOrderId.slice(-4);
                     
-                    // 🚨 THE MAGIC: Check if this is a Late Request awaiting approval!
                     const isLateReq = order.orderStatus === 'pending_approval';
 
                     return (
@@ -622,7 +631,6 @@ const AdminDashboard = () => {
                         <td className="p-6 font-black text-gray-900 text-2xl tracking-tighter">₹{safeNumber(order.orderAmount)}</td>
                         <td className="p-6">{getStatusBadge(order)}</td>
                         <td className="p-6 pr-8 text-right flex justify-end gap-3 items-center">
-                          {/* 🚨 PRODUCTION FIX: The Accept/Deny Buttons for Late Requests */}
                           {isLateReq ? (
                             <>
                               <button 

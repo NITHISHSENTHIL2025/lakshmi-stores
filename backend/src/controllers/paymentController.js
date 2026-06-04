@@ -141,7 +141,7 @@ exports.createOrder = async (req, res) => {
         finalItemsList.push({ id: product.id, name: product.name, price: product.price, quantity: qty, category: product.category });
       }
 
-      // 🚨 THE SECURE OFFER CALCULATION ENGINE (DOUBLE-DIP PROOF) 🚨
+      // 🚨 MULTIPLIER ENGINE 🚨
       let totalDiscount = 0;
       const activeOffers = await Offer.findAll({ where: { isActive: true }, transaction: t });
       
@@ -153,9 +153,13 @@ exports.createOrder = async (req, res) => {
         const alreadyDiscounted = comboItems.some(item => itemsInCombos.has(item.id));
 
         if (comboItems.length === offer.targetProductIds.length && !alreadyDiscounted) {
+          
+          // 🚨 THE BUG FIX: Find how many times this combo can be fulfilled
+          const numCombos = Math.min(...comboItems.map(item => item.quantity));
+
           const comboOriginalPrice = comboItems.reduce((sum, item) => sum + Number(item.price), 0);
           if (comboOriginalPrice > offer.comboPrice) {
-            totalDiscount += (comboOriginalPrice - Number(offer.comboPrice));
+            totalDiscount += (comboOriginalPrice - Number(offer.comboPrice)) * numCombos;
             offer.targetProductIds.forEach(id => itemsInCombos.add(id));
           }
         }

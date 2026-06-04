@@ -68,7 +68,7 @@ export const CartProvider = ({ children }) => {
     localStorage.removeItem('lakshmi_cart');
   };
 
-  // 🚨 DOUBLE-DIP PROOF PRICING ENGINE 🚨
+  // 🚨 MULTIPLIER PRICING ENGINE 🚨
   const cartSubtotal = cartItems.reduce((total, item) => total + Number(item.price) * item.quantity, 0);
   let totalDiscount = 0;
 
@@ -79,9 +79,14 @@ export const CartProvider = ({ children }) => {
     const alreadyDiscounted = comboItemsInCart.some(item => itemsInCombos.has(item.id));
 
     if (comboItemsInCart.length === offer.targetProductIds.length && !alreadyDiscounted) {
+      
+      // 🚨 THE BUG FIX: Check the minimum quantity to apply the combo multiple times!
+      const numCombos = Math.min(...comboItemsInCart.map(item => item.quantity));
+
       const comboOriginalPrice = comboItemsInCart.reduce((sum, item) => sum + Number(item.price), 0);
       if (comboOriginalPrice > offer.comboPrice) {
-         totalDiscount += (comboOriginalPrice - offer.comboPrice);
+         // Multiply the discount savings by the number of combos in the cart
+         totalDiscount += (comboOriginalPrice - offer.comboPrice) * numCombos;
          offer.targetProductIds.forEach(id => itemsInCombos.add(id));
       }
     }

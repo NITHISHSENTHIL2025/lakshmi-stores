@@ -1,7 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const OrderItem = require('../models/OrderItem');
-const Offer = require('../models/Offer'); // 🚨 NEW OFFER MODEL
+const Offer = require('../models/Offer');
 const crypto = require('crypto');
 const axios = require('axios');
 const { Op } = require('sequelize');
@@ -141,26 +141,33 @@ exports.createOrder = async (req, res) => {
         finalItemsList.push({ id: product.id, name: product.name, price: product.price, quantity: qty, category: product.category });
       }
 
-      // 🚨 THE SECURE OFFER CALCULATION ENGINE 🚨
+      // 🚨 THE SECURE OFFER CALCULATION ENGINE (DOUBLE-DIP PROOF) 🚨
       let totalDiscount = 0;
       const activeOffers = await Offer.findAll({ where: { isActive: true }, transaction: t });
+      
+      const itemsInCombos = new Set();
 
-      for (const offer of activeOffers) {
-        if (offer.type === 'COMBO') {
-          const comboItems = finalItemsList.filter(item => offer.targetProductIds.includes(item.id));
-          if (comboItems.length === offer.targetProductIds.length) {
-            const comboOriginalPrice = comboItems.reduce((sum, item) => sum + Number(item.price), 0);
-            if (comboOriginalPrice > offer.comboPrice) {
-              totalDiscount += (comboOriginalPrice - Number(offer.comboPrice));
-            }
+      const comboOffers = activeOffers.filter(o => o.type === 'COMBO');
+      for (const offer of comboOffers) {
+        const comboItems = finalItemsList.filter(item => offer.targetProductIds.includes(item.id));
+        const alreadyDiscounted = comboItems.some(item => itemsInCombos.has(item.id));
+
+        if (comboItems.length === offer.targetProductIds.length && !alreadyDiscounted) {
+          const comboOriginalPrice = comboItems.reduce((sum, item) => sum + Number(item.price), 0);
+          if (comboOriginalPrice > offer.comboPrice) {
+            totalDiscount += (comboOriginalPrice - Number(offer.comboPrice));
+            offer.targetProductIds.forEach(id => itemsInCombos.add(id));
           }
-        } else if (offer.type === 'DISCOUNT') {
-          finalItemsList.forEach(item => {
-            if (offer.targetProductIds.includes(item.id)) {
-              totalDiscount += (Number(item.price) * item.quantity) * (offer.discountPercentage / 100);
-            }
-          });
         }
+      }
+
+      const flatOffers = activeOffers.filter(o => o.type === 'DISCOUNT');
+      for (const offer of flatOffers) {
+        finalItemsList.forEach(item => {
+          if (offer.targetProductIds.includes(item.id) && !itemsInCombos.has(item.id)) {
+            totalDiscount += (Number(item.price) * item.quantity) * (offer.discountPercentage / 100);
+          }
+        });
       }
 
       const finalSecureTotal = Math.max(0, backendCalculatedSubtotal - totalDiscount);

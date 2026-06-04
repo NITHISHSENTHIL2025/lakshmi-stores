@@ -16,9 +16,8 @@ export const CartProvider = ({ children }) => {
   });
   
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [offers, setOffers] = useState([]); // 🚨 New State for Active Offers
+  const [offers, setOffers] = useState([]); 
 
-  // Fetch active offers when app loads
   useEffect(() => {
     api.get('/offers/active')
        .then(res => setOffers(res.data.data || []))
@@ -69,30 +68,31 @@ export const CartProvider = ({ children }) => {
     localStorage.removeItem('lakshmi_cart');
   };
 
-  // 🚨 THE PRICING ENGINE: Calculate Subtotal, Discounts, and Final Total
+  // 🚨 DOUBLE-DIP PROOF PRICING ENGINE 🚨
   const cartSubtotal = cartItems.reduce((total, item) => total + Number(item.price) * item.quantity, 0);
   let totalDiscount = 0;
 
-  // Apply Combos and Discounts
-  offers.forEach(offer => {
-    if (offer.type === 'COMBO') {
-      // Check if all target items for the combo are in the cart
-      const comboItemsInCart = cartItems.filter(item => offer.targetProductIds.includes(item.id));
-      if (comboItemsInCart.length === offer.targetProductIds.length) {
-        // Calculate original price of the combo items
-        const comboOriginalPrice = comboItemsInCart.reduce((sum, item) => sum + Number(item.price), 0);
-        // Add the savings to the total discount
-        if (comboOriginalPrice > offer.comboPrice) {
-           totalDiscount += (comboOriginalPrice - offer.comboPrice);
-        }
+  const itemsInCombos = new Set();
+
+  offers.filter(o => o.type === 'COMBO').forEach(offer => {
+    const comboItemsInCart = cartItems.filter(item => offer.targetProductIds.includes(item.id));
+    const alreadyDiscounted = comboItemsInCart.some(item => itemsInCombos.has(item.id));
+
+    if (comboItemsInCart.length === offer.targetProductIds.length && !alreadyDiscounted) {
+      const comboOriginalPrice = comboItemsInCart.reduce((sum, item) => sum + Number(item.price), 0);
+      if (comboOriginalPrice > offer.comboPrice) {
+         totalDiscount += (comboOriginalPrice - offer.comboPrice);
+         offer.targetProductIds.forEach(id => itemsInCombos.add(id));
       }
-    } else if (offer.type === 'DISCOUNT') {
-      cartItems.forEach(item => {
-        if (offer.targetProductIds.includes(item.id)) {
-          totalDiscount += (Number(item.price) * item.quantity) * (offer.discountPercentage / 100);
-        }
-      });
     }
+  });
+
+  offers.filter(o => o.type === 'DISCOUNT').forEach(offer => {
+    cartItems.forEach(item => {
+      if (offer.targetProductIds.includes(item.id) && !itemsInCombos.has(item.id)) {
+        totalDiscount += (Number(item.price) * item.quantity) * (offer.discountPercentage / 100);
+      }
+    });
   });
 
   const cartTotal = Math.max(0, cartSubtotal - totalDiscount).toFixed(2);

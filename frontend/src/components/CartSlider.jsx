@@ -7,7 +7,8 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast'; 
 
 const CartSlider = () => {
-  const { isCartOpen, setIsCartOpen, cartItems, updateQuantity, removeFromCart, cartTotal, clearCart } = useCart();
+  // 🚨 NEW: Destructured cartSubtotal and totalDiscount from context
+  const { isCartOpen, setIsCartOpen, cartItems, updateQuantity, removeFromCart, cartTotal, cartSubtotal, totalDiscount, clearCart } = useCart();
   const { user } = useAuth(); 
   
   const [loading, setLoading] = useState(false);
@@ -45,7 +46,7 @@ const CartSlider = () => {
     try {
       await api.post('/orders/request-late', {
         orderAmount: cartTotal,
-        totalAmount: cartTotal, // 🚨 THE BUG FIX: Passing totalAmount so DB doesn't crash
+        totalAmount: cartSubtotal, // Send original subtotal
         customerEmail: user.email || 'guest@lakshmistores.com',
         customerPhone: user.phone || '9999999999',
         items: cartItems.map(item => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category })),
@@ -84,9 +85,15 @@ const CartSlider = () => {
 
     try {
       const response = await api.post('/payment/create-order', {
-        orderAmount: cartTotal, customerEmail: safeEmail, customerPhone: safePhone, userId: userId,
+        orderAmount: cartTotal, 
+        customerEmail: safeEmail, 
+        customerPhone: safePhone, 
+        userId: userId,
         items: cartItems.map(item => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity, category: item.category })),
-        totalAmount: cartTotal, paymentMethod: paymentMethod, pickupTime: finalPickupTime, customerNote: customerNote
+        totalAmount: cartSubtotal, // Send original subtotal
+        paymentMethod: paymentMethod, 
+        pickupTime: finalPickupTime, 
+        customerNote: customerNote
       }, { headers: { 'X-Idempotency-Key': idempotencyKey } });
 
       if (response.data.isCash) {
@@ -180,9 +187,24 @@ const CartSlider = () => {
                     <p className="text-yellow-700 text-xs font-bold">Standard checkouts are disabled. You can request a final order for Admin approval.</p>
                  </div>
                  
-                 <div className="flex justify-between items-end mb-2 px-2">
-                   <span className="text-gray-500 font-bold uppercase tracking-widest text-xs">Total Due</span>
-                   <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
+                 {/* 🚨 NEW: Price Breakdown UI for Late Request */}
+                 <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mb-2">
+                   <div className="flex justify-between items-center mb-2">
+                     <span className="text-gray-500 font-bold text-sm">Subtotal</span>
+                     <span className="font-bold text-gray-900">₹{cartSubtotal}</span>
+                   </div>
+                   
+                   {Number(totalDiscount) > 0 && (
+                     <div className="flex justify-between items-center mb-3 text-green-600">
+                       <span className="font-bold text-sm flex items-center gap-1"><span>🏷️</span> Offer Discount</span>
+                       <span className="font-black">-₹{totalDiscount}</span>
+                     </div>
+                   )}
+                   
+                   <div className="border-t border-gray-200 pt-3 mt-1 flex justify-between items-end">
+                     <span className="text-gray-900 font-black uppercase tracking-widest text-xs">Total Due</span>
+                     <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
+                   </div>
                  </div>
 
                  <button onClick={handleLateRequest} disabled={loading} className="w-full text-white py-4 rounded-2xl font-black text-xl transition-all flex justify-center items-center gap-2 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 shadow-xl shadow-yellow-500/30 transform hover:scale-[1.02] active:scale-95 cursor-pointer">
@@ -216,9 +238,30 @@ const CartSlider = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-between items-end mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <span className="text-gray-500 font-bold uppercase tracking-widest text-xs">Total Due</span>
-                  <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
+                {/* 🚨 NEW: Price Breakdown UI */}
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-500 font-bold text-sm">Subtotal</span>
+                    <span className="font-bold text-gray-900">₹{cartSubtotal}</span>
+                  </div>
+                  
+                  {Number(totalDiscount) > 0 && (
+                    <div className="flex justify-between items-center mb-3 text-green-600">
+                      <span className="font-bold text-sm flex items-center gap-1"><span>🏷️</span> Offer Discount</span>
+                      <span className="font-black">-₹{totalDiscount}</span>
+                    </div>
+                  )}
+                  
+                  <div className="border-t border-gray-200 pt-3 mt-1 flex justify-between items-end">
+                    <span className="text-gray-900 font-black uppercase tracking-widest text-xs">Total Due</span>
+                    <span className="text-4xl font-black text-gray-900 tracking-tighter">₹{cartTotal}</span>
+                  </div>
+                  
+                  {Number(totalDiscount) > 0 && (
+                    <div className="mt-4 bg-green-100 text-green-800 text-xs font-black uppercase tracking-widest p-2.5 rounded-lg text-center border border-green-200 animate-pulseSoft">
+                      🎉 You saved ₹{totalDiscount} on this order!
+                    </div>
+                  )}
                 </div>
 
                 <button onClick={handleCheckout} disabled={loading || !storeStatus.isOpen} className={`w-full text-white py-4 rounded-2xl font-black text-xl transition-all flex justify-center items-center gap-2 ${!storeStatus.isOpen ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-xl shadow-orange-500/30 transform hover:scale-[1.02] active:scale-95 cursor-pointer'}`}>
